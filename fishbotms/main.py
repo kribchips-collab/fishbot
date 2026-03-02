@@ -50,14 +50,43 @@ async def start(msg: types.Message):
     user = db.get_user(msg.from_user.id)
     await msg.answer(f"Мир МС огромен... Твой баланс: <b>{user[2]}</b> 💰", reply_markup=main_menu(user[2]))
 
+# --- QUALITY OF LIFE: ТЕКСТОВЫЕ КОМАНДЫ ---
+@dp.message(F.text.lower().in_(["фиш", "fish", "закинуть"]))
+async def qol_throw(msg: types.Message):
+    # Создаем фейковый callback для вызова основной функции
+    class FakeCall:
+        def __init__(self, message):
+            self.message = message
+            self.from_user = message.from_user
+            self.data = "throw"
+        async def answer(self, text=None, show_alert=False):
+            if text: await self.message.answer(text)
+    
+    await handle_callbacks(FakeCall(msg))
+
+@dp.message(F.text.lower().in_(["инв", "inv", "инвентарь"]))
+async def qol_inv(msg: types.Message):
+    user = db.get_user(msg.from_user.id)
+    inv = db.get_inventory(msg.from_user.id)
+    text = f"🎒 Инвентарь <b>{msg.from_user.first_name}</b>:\n" + "\n".join([f"• {n} x{c} ({round(p, 1)}💰)" for n, c, p in inv])
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💰 Продать всё", callback_data="sell_all")
+    await msg.answer(text if inv else "🎒 В инвентаре пусто...", reply_markup=kb.as_markup())
+
+@dp.message(F.text.lower().in_(["рыбменю", "menu", "меню"]))
+async def qol_menu(msg: types.Message):
+    await start(msg)
+
+# --- ОБРАБОТКА КНОПОК ---
 @dp.callback_query()
 async def handle_callbacks(call: types.CallbackQuery):
     uid = call.from_user.id
-    user = db.get_user(uid) # [id, name, balance, loc, bait, last_time]
+    user = db.get_user(uid)
     now = datetime.now()
 
     if call.data == "throw":
-        # ПРОВЕРКА КД 10 МИНУТ
+        # ... твой код проверки КД и логика шансов ...
+        # (Оставляю как есть в твоем файле, не меняй там ничего)
         if user[5]:
             last_time = datetime.fromisoformat(user[5])
             if now < last_time + timedelta(minutes=10):
@@ -67,7 +96,6 @@ async def handle_callbacks(call: types.CallbackQuery):
         current_loc = user[3]
         current_bait = user[4]
         
-        # ЛОГИКА ШАНСОВ
         LOC_POOLS = {"Яма с радиацией": ["radioactive", "rotten"], "Лаборатория": ["blind", "honey", "fluffy"], "Пещера": ["spider", "amethyst"], "Деревня": ["beaver", "copper", "troll"], "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]}
         
         if random.random() < 0.005: fish_key = "irinalegend"
@@ -78,7 +106,6 @@ async def handle_callbacks(call: types.CallbackQuery):
             else: fish_key = random.choice(LOC_POOLS["Океан"])
 
         if fish_key == "fluffy" and random.random() < 0.03: fish_key = "super_fluffy"
-
         fish = FISH_DATA[fish_key]
         weight = round(random.uniform(fish["weight"][0], fish["weight"][1]), 2)
         price = round(weight * 5, 1)
@@ -87,20 +114,10 @@ async def handle_callbacks(call: types.CallbackQuery):
         with db.connection:
             db.cursor.execute("UPDATE users SET bait = 'Нет', last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
 
-        # ОТПРАВКА СТИКЕРА (новым сообщением)
         img_path = os.path.join(IMG_DIR, fish["img"])
         if os.path.exists(img_path):
             await call.message.answer_sticker(sticker=FSInputFile(img_path))
-
-        await call.message.answer(f"試 <b>{call.from_user.first_name}</b> в <i>{current_loc}</i> выловил:\n🐟 <b>{fish['name']}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
-
-    elif call.data == "loc":
-        kb = InlineKeyboardBuilder()
-        for k, v in LOCATIONS.items(): kb.button(text=v, callback_data=f"setloc_{k}")
-        kb.adjust(2)
-        kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
-        # ТУТ РЕДАКТИРУЕМ
-        await call.message.edit_text(f"🗺 Локация: <b>{user[3]}</b>\nКуда едем?", reply_markup=kb.as_markup())
+        await call.message.answer(f"🎣 <b>{call.from_user.first_name}</b> в <i>{current_loc}</i> выловил:\n🐟 <b>{fish['name']}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
 
     elif call.data == "bait_menu":
         kb = InlineKeyboardBuilder()
@@ -108,8 +125,22 @@ async def handle_callbacks(call: types.CallbackQuery):
             kb.button(text=f"{b_name} ({price}💰)", callback_data=f"buy_{b_name}")
         kb.adjust(2)
         kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
-        # ТУТ РЕДАКТИРУЕМ
-        await call.message.edit_text(f"🧪 Твоя наживка: <b>{user[4]}</b>\nВыбери новую (+20% шанс):", reply_markup=kb.as_markup())
+        await call.message.edit_text(f"🧪 Твоя наживка: <b>{user[4]}</b>\nВыбери новую за 10💰:", reply_markup=kb.as_markup())
+
+    # --- ВОТ ЭТОТ БЛОК МЫ ДОБАВИЛИ ДЛЯ ПОКУПКИ ---
+    elif call.data.startswith("buy_"):
+        bait_name = call.data.split("_")[1]
+        price = BAITS.get(bait_name, 10)
+        
+        if user[2] >= price:
+            with db.connection:
+                db.cursor.execute("UPDATE users SET balance = balance - ?, bait = ? WHERE user_id = ?", (price, bait_name, uid))
+            await call.answer(f"✅ Куплено: {bait_name}", show_alert=True)
+            # Сразу обновляем текст меню
+            new_user = db.get_user(uid)
+            await call.message.edit_text(f"🧪 Твоя наживка: <b>{new_user[4]}</b>\nВыбери новую за 10💰:", reply_markup=call.message.reply_markup)
+        else:
+            await call.answer("❌ Недостаточно денег!", show_alert=True)
 
     elif call.data == "inv":
         inv = db.get_inventory(uid)
@@ -117,7 +148,6 @@ async def handle_callbacks(call: types.CallbackQuery):
         kb = InlineKeyboardBuilder()
         kb.button(text="💰 Продать всё", callback_data="sell_all")
         kb.button(text="⬅️ Назад", callback_data="back")
-        # ТУТ РЕДАКТИРУЕМ
         await call.message.edit_text(text if inv else "🎒 В инвентаре пока пусто...", reply_markup=kb.as_markup())
 
     elif call.data == "top":
@@ -127,23 +157,28 @@ async def handle_callbacks(call: types.CallbackQuery):
             text += f"{i}. {name} — {round(balance, 1)} 💰\n"
         kb = InlineKeyboardBuilder()
         kb.button(text="⬅️ Назад", callback_data="back")
-        # ТУТ РЕДАКТИРУЕМ
         await call.message.edit_text(text, reply_markup=kb.as_markup())
-
-    elif call.data == "sell_all":
-        earned = db.sell_all(uid)
-        await call.answer(f"✅ Продано на {earned} 💰", show_alert=True)
-        # Обновляем меню, чтобы баланс сразу изменился
-        new_user = db.get_user(uid)
-        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{new_user[2]}</b> 💰", reply_markup=main_menu(new_user[2]))
 
     elif call.data == "back":
         await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{user[2]}</b> 💰", reply_markup=main_menu(user[2]))
+
+    elif call.data == "loc":
+        kb = InlineKeyboardBuilder()
+        for k, v in LOCATIONS.items(): kb.button(text=v, callback_data=f"setloc_{k}")
+        kb.adjust(2)
+        kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
+        await call.message.edit_text(f"🗺 Локация: <b>{user[3]}</b>\nКуда едем?", reply_markup=kb.as_markup())
 
     elif call.data.startswith("setloc_"):
         new_loc = call.data.split("_")[1]
         with db.connection: db.cursor.execute("UPDATE users SET location = ? WHERE user_id = ?", (new_loc, uid))
         await call.answer(f"Погнали в {new_loc}!", show_alert=True)
+        new_user = db.get_user(uid)
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{new_user[2]}</b> 💰", reply_markup=main_menu(new_user[2]))
+
+    elif call.data == "sell_all":
+        earned = db.sell_all(uid)
+        await call.answer(f"✅ Продано на {earned} 💰", show_alert=True)
         new_user = db.get_user(uid)
         await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{new_user[2]}</b> 💰", reply_markup=main_menu(new_user[2]))
 
