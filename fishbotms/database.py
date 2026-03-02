@@ -52,3 +52,7 @@ class Database:
                 self.cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (total, user_id))
                 self.cursor.execute("DELETE FROM inventory WHERE user_id = ?", (user_id,))
             return round(total, 1)
+    def get_top(self):
+        with self.connection:
+            # Берем 10 самых богатых игроков
+            return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()

@@ -87,25 +87,29 @@ async def handle_callbacks(call: types.CallbackQuery):
         with db.connection:
             db.cursor.execute("UPDATE users SET bait = 'Нет', last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
 
-        # ОТПРАВКА СТИКЕРА
+        # ОТПРАВКА СТИКЕРА (новым сообщением)
         img_path = os.path.join(IMG_DIR, fish["img"])
         if os.path.exists(img_path):
             await call.message.answer_sticker(sticker=FSInputFile(img_path))
 
-        await call.message.answer(f"🎣 <b>{call.from_user.first_name}</b> в <i>{current_loc}</i> выловил:\n🐟 <b>{fish['name']}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
+        await call.message.answer(f"試 <b>{call.from_user.first_name}</b> в <i>{current_loc}</i> выловил:\n🐟 <b>{fish['name']}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
 
     elif call.data == "loc":
         kb = InlineKeyboardBuilder()
         for k, v in LOCATIONS.items(): kb.button(text=v, callback_data=f"setloc_{k}")
         kb.adjust(2)
         kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
-        await call.message.edit_text(f"Локация: <b>{user[3]}</b>\nКуда едем?", reply_markup=kb.as_markup())
+        # ТУТ РЕДАКТИРУЕМ
+        await call.message.edit_text(f"🗺 Локация: <b>{user[3]}</b>\nКуда едем?", reply_markup=kb.as_markup())
 
-    elif call.data.startswith("setloc_"):
-        new_loc = call.data.split("_")[1]
-        with db.connection: db.cursor.execute("UPDATE users SET location = ? WHERE user_id = ?", (new_loc, uid))
-        await call.answer(f"Погнали в {new_loc}!", show_alert=True)
-        await start(call.message)
+    elif call.data == "bait_menu":
+        kb = InlineKeyboardBuilder()
+        for b_name, price in BAITS.items():
+            kb.button(text=f"{b_name} ({price}💰)", callback_data=f"buy_{b_name}")
+        kb.adjust(2)
+        kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
+        # ТУТ РЕДАКТИРУЕМ
+        await call.message.edit_text(f"🧪 Твоя наживка: <b>{user[4]}</b>\nВыбери новую (+20% шанс):", reply_markup=kb.as_markup())
 
     elif call.data == "inv":
         inv = db.get_inventory(uid)
@@ -113,14 +117,36 @@ async def handle_callbacks(call: types.CallbackQuery):
         kb = InlineKeyboardBuilder()
         kb.button(text="💰 Продать всё", callback_data="sell_all")
         kb.button(text="⬅️ Назад", callback_data="back")
-        await call.message.edit_text(text if inv else "🎒 Пусто...", reply_markup=kb.as_markup())
+        # ТУТ РЕДАКТИРУЕМ
+        await call.message.edit_text(text if inv else "🎒 В инвентаре пока пусто...", reply_markup=kb.as_markup())
+
+    elif call.data == "top":
+        top_users = db.get_top() 
+        text = "🏆 <b>ТОП РЫБАКОВ:</b>\n\n"
+        for i, (name, balance) in enumerate(top_users, 1):
+            text += f"{i}. {name} — {round(balance, 1)} 💰\n"
+        kb = InlineKeyboardBuilder()
+        kb.button(text="⬅️ Назад", callback_data="back")
+        # ТУТ РЕДАКТИРУЕМ
+        await call.message.edit_text(text, reply_markup=kb.as_markup())
 
     elif call.data == "sell_all":
         earned = db.sell_all(uid)
-        await call.answer(f"Заработано {earned} 💰", show_alert=True)
-        await start(call.message)
+        await call.answer(f"✅ Продано на {earned} 💰", show_alert=True)
+        # Обновляем меню, чтобы баланс сразу изменился
+        new_user = db.get_user(uid)
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{new_user[2]}</b> 💰", reply_markup=main_menu(new_user[2]))
 
-    elif call.data == "back": await start(call.message)
+    elif call.data == "back":
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{user[2]}</b> 💰", reply_markup=main_menu(user[2]))
+
+    elif call.data.startswith("setloc_"):
+        new_loc = call.data.split("_")[1]
+        with db.connection: db.cursor.execute("UPDATE users SET location = ? WHERE user_id = ?", (new_loc, uid))
+        await call.answer(f"Погнали в {new_loc}!", show_alert=True)
+        new_user = db.get_user(uid)
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{new_user[2]}</b> 💰", reply_markup=main_menu(new_user[2]))
+
     await call.answer()
 
 async def main(): await dp.start_polling(bot)
