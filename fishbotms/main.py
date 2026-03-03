@@ -188,6 +188,53 @@ async def handle_callbacks(call: types.CallbackQuery):
         new_u = db.get_user(uid)
         await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{new_u[2]}</b> 💰", reply_markup=main_menu(new_u[2]))
     await call.answer()
+@dp.message(Command("testfish"))
+async def test_fish(msg: types.Message):
+    # Берем данные игрока, чтобы знать его локацию и наживку
+    user = db.get_user(msg.from_user.id)
+    current_loc = user[3]
+    current_bait = user[4]
 
+    # 1. Логика бассейнов (копия основной)
+    LOC_POOLS = {
+        "Яма с радиацией": ["radioactive", "rotten"], 
+        "Лаборатория": ["blind", "honey", "fluffy"], 
+        "Пещера": ["spider", "amethyst"], 
+        "Деревня": ["beaver", "copper", "troll"], 
+        "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
+    }
+
+    # 2. Выбор рыбы
+    if random.random() < 0.005: 
+        f_key = "irinalegend"
+    else:
+        target = [k for k, v in FISH_DATA.items() if v.get("bait") == current_bait]
+        if target and random.random() < 0.5: f_key = random.choice(target)
+        elif current_loc in LOC_POOLS and random.random() < 0.8: f_key = random.choice(LOC_POOLS[current_loc])
+        else: f_key = random.choice(LOC_POOLS["Океан"])
+
+    if f_key == "fluffy" and random.random() < 0.03: f_key = "super_fluffy"
+    fish = FISH_DATA[f_key]
+
+    # 3. Модификаторы
+    mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
+    prefix = mod['p'] + " " if mod['p'] else ""
+    final_name = f"{prefix}{fish['name']}"
+    
+    # Расчет веса и цены для инфы
+    w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
+    p = round(w * 5, 1)
+
+    # 4. Вывод (БЕЗ db.add_fish)
+    await msg.answer(
+        f"🧪 <b>ТЕСТОВЫЙ ЗАБРОС</b>\n"
+        f"Локация: {current_loc}\n"
+        f"Наживка: {current_bait}\n"
+        f"━━━━━━━━━━━━\n"
+        f"🐟 Выпало: <b>{final_name}</b> ({w} кг)\n"
+        f"💰 Цена была бы: {p}\n"
+        f"⚠️ <i>В инвентарь не добавлено</i>"
+    )
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
+
