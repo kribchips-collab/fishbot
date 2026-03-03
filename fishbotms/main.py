@@ -57,7 +57,7 @@ def main_menu(balance=0):
 async def start(msg: types.Message):
     db.register_user(msg.from_user.id, msg.from_user.first_name)
     user = db.get_user(msg.from_user.id)
-    await msg.answer(f"Мир МС огромен... Твой баланс: <b>{user[2]}</b> 💰", reply_markup=main_menu(user[2]))
+    await msg.answer(f"Мир МС огромен... Твой баланс: <b>{round(user[2], 1)}</b> 💰", reply_markup=main_menu(round(user[2], 1)))
 
 @dp.message(F.text.lower().in_(["фиш", "fish", "закинуть"]))
 async def qol_throw(msg: types.Message):
@@ -303,5 +303,6 @@ async def give_fish(msg: types.Message):
 
     await msg.answer(f"🎁 <b>{msg.from_user.first_name}</b> подарил 🐟 <b>{fish_name}</b> игроку <b>{msg.reply_to_message.from_user.first_name}</b>")
 if __name__ == "__main__": asyncio.run(main())
+
 
 
