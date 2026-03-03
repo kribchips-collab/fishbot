@@ -104,7 +104,8 @@ def main_menu():
     kb.row(types.InlineKeyboardButton(text="🏆 Топ", callback_data="top"))
     return kb.as_markup()
 
-# --- КОМАНДА СЕТКА ---
+# --- СУЩЕСТВУЮЩИЕ ФУНКЦИИ ---
+
 @dp.message(F.text.lower().in_(["сетка", "net", "сетку"]))
 async def use_grid(msg: types.Message):
     uid = msg.from_user.id
@@ -118,12 +119,15 @@ async def use_grid(msg: types.Message):
             hours, remainder = divmod(wait.seconds, 3600)
             minutes = remainder // 60
             return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{hours}ч. {minutes}мин.</b>")
+
     total_money = 0
     catch_lines = []
     for _ in range(15):
         possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
-        f_key = "irinalegend" if random.random() < 0.001 else random.choice(possible_keys)
-        fish = FISH_DATA[f_key]
+        if random.random() < 0.001: fish_key = "irinalegend"
+        else: fish_key = random.choice(possible_keys)
+        
+        fish = FISH_DATA[fish_key]
         mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
         final_name = f"{mod['p'] + ' ' if mod['p'] else ''}{fish['name']}"
         w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
@@ -131,36 +135,17 @@ async def use_grid(msg: types.Message):
         db.add_fish(uid, final_name, p)
         catch_lines.append(f"• {final_name} ({p} 💰)")
         total_money += p
+
     with db.connection:
         db.cursor.execute("UPDATE users SET last_grid_time = ? WHERE user_id = ?", (now.isoformat(), uid))
-    await msg.answer(f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил из воды:\n\n" + "\n".join(catch_lines) + f"\n\n<b>ВСЕГО ДЕНЕГ💰: {round(total_money, 1)}</b>")
+    await msg.answer(f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил:\n\n" + "\n".join(catch_lines) + f"\n\n<b>ИТОГО💰: {round(total_money, 1)}</b>")
 
-# --- ОБРАБОТЧИКИ СООБЩЕНИЙ ---
 @dp.message(Command("start"))
 @dp.message(F.text.lower().in_(["меню", "рыбменю", "старт"]))
 async def start(msg: types.Message):
     db.register_user(msg.from_user.id, msg.from_user.first_name)
     user = db.get_user(msg.from_user.id)
     await msg.answer(f"Мир МС огромен... Твой баланс: <b>{round(user[2], 1)}</b> 💰", reply_markup=main_menu())
-
-@dp.message(F.text.lower().in_(["фиш", "fish", "закинуть"]))
-async def qol_throw(msg: types.Message):
-    # Костыль для вызова броска через текст
-    class FakeCall:
-        def __init__(self, message):
-            self.message = message
-            self.from_user = message.from_user
-            self.data = "throw"
-        async def answer(self, text=None, show_alert=False):
-            if text: await self.message.answer(text)
-    await handle_callbacks(FakeCall(msg))
-
-@dp.message(F.text.lower().in_(["инв", "inv", "инвентарь"]))
-async def qol_inv(msg: types.Message):
-    inv = db.get_inventory(msg.from_user.id)
-    text = f"🎒 Инвентарь:\n" + "\n".join([f"• {n} x{c} ({round(p, 1)}💰)" for n, c, p in inv])
-    kb = InlineKeyboardBuilder().button(text="💰 Продать всё", callback_data="sell_all")
-    await msg.answer(text if inv else "🎒 В инвентаре пусто...", reply_markup=kb.as_markup())
 
 # --- ОБРАБОТКА КНОПОК ---
 @dp.callback_query()
@@ -176,18 +161,35 @@ async def handle_callbacks(call: types.CallbackQuery):
             if now < last_time + timedelta(minutes=10):
                 wait = (last_time + timedelta(minutes=10) - now).seconds // 60
                 return await call.answer(f"⏳ Жди {wait+1} мин.", show_alert=True)
-        # Логика ловли
+
         current_loc, current_bait = user[3], user[4]
-        possible = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
-        fish_key = random.choice(possible)
+        LOC_POOLS = {
+            "Яма с радиацией": ["radioactive", "rotten"], "Лаборатория": ["blind", "honey", "fluffy"], 
+            "Пещера": ["spider", "amethyst"], "Деревня": ["beaver", "copper", "troll"], 
+            "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
+        }
+        
+        if random.random() < 0.005: fish_key = "irinalegend"
+        else:
+            target = [k for k, v in FISH_DATA.items() if v.get("bait") == current_bait]
+            if target and random.random() < 0.5: fish_key = random.choice(target)
+            elif current_loc in LOC_POOLS and random.random() < 0.8: fish_key = random.choice(LOC_POOLS[current_loc])
+            else: fish_key = random.choice(LOC_POOLS["Океан"])
+
+        if fish_key == "fluffy" and random.random() < 0.03: fish_key = "super_fluffy"
+        
         fish = FISH_DATA[fish_key]
         mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
         final_name = f"{mod['p'] + ' ' if mod['p'] else ''}{fish['name']}"
         weight = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
         price = round(weight * 5, 1)
+
         db.add_fish(uid, final_name, price)
         with db.connection:
             db.cursor.execute("UPDATE users SET bait = 'Нет', last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+
+        img_path = os.path.join(IMG_DIR, fish["img"])
+        if os.path.exists(img_path): await call.message.answer_sticker(sticker=FSInputFile(img_path))
         await call.message.answer(f"🎣 <b>{final_name}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu())
 
     elif call.data == "almanac":
@@ -196,6 +198,9 @@ async def handle_callbacks(call: types.CallbackQuery):
         
     elif call.data == "grid_call":
         await use_grid(call.message)
+
+    elif call.data == "back":
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{round(user[2], 1)}</b> 💰", reply_markup=main_menu())
 
     elif call.data == "bait_menu":
         kb = InlineKeyboardBuilder()
@@ -215,14 +220,28 @@ async def handle_callbacks(call: types.CallbackQuery):
         kb.adjust(2).row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
         await call.message.edit_text(f"🗺 Локация: <b>{user[3]}</b>", reply_markup=kb.as_markup())
 
-    elif call.data == "back":
-        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{round(user[2], 1)}</b> 💰", reply_markup=main_menu())
+    elif call.data.startswith("setloc_"):
+        new_l = call.data.split("_")[1]
+        with db.connection: db.cursor.execute("UPDATE users SET location = ? WHERE user_id = ?", (new_l, uid))
+        await call.answer(f"В {new_l}!")
+        u = db.get_user(uid)
+        await call.message.edit_text(f"Баланс: <b>{round(u[2], 1)}</b> 💰", reply_markup=main_menu())
 
     elif call.data == "sell_all":
         e = db.sell_all(uid)
         await call.answer(f"✅ +{e} 💰")
         u = db.get_user(uid)
         await call.message.edit_text(f"Баланс: <b>{round(u[2], 1)}</b> 💰", reply_markup=main_menu())
+
+    elif call.data.startswith("buy_"):
+        b_name = call.data.split("_")[1]
+        p = BAITS.get(b_name, 10)
+        if user[2] >= p:
+            with db.connection: db.cursor.execute("UPDATE users SET balance = ROUND(balance - ?, 1), bait = ? WHERE user_id = ?", (p, b_name, uid))
+            await call.answer(f"✅ Куплено: {b_name}")
+            new_u = db.get_user(uid)
+            await call.message.edit_text(f"🧪 Наживка: <b>{new_u[4]}</b>", reply_markup=call.message.reply_markup)
+        else: await call.answer("❌ Нет денег!", show_alert=True)
 
     await call.answer()
 
