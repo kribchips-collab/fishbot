@@ -235,6 +235,73 @@ async def test_fish(msg: types.Message):
         f"💰 Цена была бы: {p}\n"
         f"⚠️ <i>В инвентарь не добавлено</i>"
     )
+@dp.message(F.text.lower().startswith("передать"))
+async def transfer_money(msg: types.Message):
+    # Проверяем, что это ответ на сообщение
+    if not msg.reply_to_message:
+        return await msg.answer("⚠️ Ответь на сообщение того, кому хочешь передать деньги!")
+
+    parts = msg.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        return await msg.answer("⚠️ Напиши: <b>передать [сумма]</b> (например: передать 100)")
+
+    amount = int(parts[1])
+    sender_id = msg.from_user.id
+    receiver_id = msg.reply_to_message.from_user.id
+
+    if sender_id == receiver_id:
+        return await msg.answer("🤔 Передавать деньги самому себе? Гениально, но нет.")
+
+    sender = db.get_user(sender_id)
+    if sender[2] < amount:
+        return await msg.answer("❌ У тебя недостаточно денег!")
+
+    # Проводим транзакцию в базе
+    with db.connection:
+        db.cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, sender_id))
+        db.cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, receiver_id))
+
+    await msg.answer(f"💸 <b>{msg.from_user.first_name}</b> передал {amount} 💰 игроку <b>{msg.reply_to_message.from_user.first_name}</b>")
 async def main(): await dp.start_polling(bot)
+@dp.message(F.text.lower().startswith("отдать"))
+async def give_fish(msg: types.Message):
+    if not msg.reply_to_message:
+        return await msg.answer("⚠️ Ответь на сообщение друга!")
+
+    # Вырезаем название рыбы из текста команды
+    fish_name = msg.text[7:].strip()
+    if not fish_name:
+        return await msg.answer("⚠️ Напиши: <b>отдать [название рыбы]</b>")
+
+    sid = msg.from_user.id
+    rid = msg.reply_to_message.from_user.id
+
+    with db.connection:
+        # Ищем рыбу у отправителя
+        res = db.cursor.execute(
+            "SELECT count, total_price FROM inventory WHERE user_id = ? AND fish_name = ?", 
+            (sid, fish_name)
+        ).fetchone()
+
+        if not res or res[0] <= 0:
+            return await msg.answer(f"❌ У тебя нет рыбы «{fish_name}»")
+
+        # Считаем цену одной штуки для переноса
+        price_per_one = res[1] / res[0]
+
+        # Забираем у отправителя
+        if res[0] > 1:
+            db.cursor.execute(
+                "UPDATE inventory SET count = count - 1, total_price = total_price - ? WHERE user_id = ? AND fish_name = ?", 
+                (price_per_one, sid, fish_name)
+            )
+        else:
+            db.cursor.execute("DELETE FROM inventory WHERE user_id = ? AND fish_name = ?", (sid, fish_name))
+
+        # Добавляем получателю (используем твою готовую функцию)
+        db.add_fish(rid, fish_name, price_per_one)
+
+    await msg.answer(f"🎁 <b>{msg.from_user.first_name}</b> подарил 🐟 <b>{fish_name}</b> игроку <b>{msg.reply_to_message.from_user.first_name}</b>")
 if __name__ == "__main__": asyncio.run(main())
+
 
