@@ -113,3 +113,23 @@ class Database:
             # Берем 10 самых богатых игроков
 
             return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
+    def add_fish(self, user_id, fish_name, price):
+        # Округляем цену сразу при входе
+        price = round(price, 1) 
+        with self.connection:
+            item = self.cursor.execute("SELECT count FROM inventory WHERE user_id = ? AND fish_name = ?", (user_id, fish_name)).fetchone()
+            if item:
+                self.cursor.execute("UPDATE inventory SET count = count + 1, total_price = ROUND(total_price + ?, 1) WHERE user_id = ? AND fish_name = ?", (price, user_id, fish_name))
+            else:
+                self.cursor.execute("INSERT INTO inventory (user_id, fish_name, count, total_price) VALUES (?, ?, 1, ?)", (user_id, fish_name, price))
+
+    def sell_all(self, user_id):
+        with self.connection:
+            res = self.cursor.execute("SELECT SUM(total_price) FROM inventory WHERE user_id = ?", (user_id,)).fetchone()
+            total = round(res[0], 1) if res[0] else 0
+            if total > 0:
+                # Округляем баланс при обновлении
+                self.cursor.execute("UPDATE users SET balance = ROUND(balance + ?, 1) WHERE user_id = ?", (total, user_id))
+                self.cursor.execute("DELETE FROM inventory WHERE user_id = ?", (user_id,))
+            return total
+
