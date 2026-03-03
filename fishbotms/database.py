@@ -6,7 +6,7 @@ class Database:
         self.cursor = self.connection.cursor()
         self.create_tables()
 
-    def create_tables(self):
+def create_tables(self):
         """Создаем таблицы, если их еще нет"""
         with self.connection:
             self.cursor.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -15,7 +15,8 @@ class Database:
                 balance REAL DEFAULT 0.0,
                 location TEXT DEFAULT 'Океан',
                 bait TEXT DEFAULT 'Нет',
-                last_fish_time TEXT
+                last_fish_time TEXT,
+                last_grid_time TEXT  -- <--- ВОТ ЭТА СТРОЧКА ДОБАВИЛАСЬ
             )""")
             self.cursor.execute("""CREATE TABLE IF NOT EXISTS inventory (
                 user_id INTEGER,
@@ -82,3 +83,4 @@ class Database:
         """Топ-10 богатых игроков"""
         with self.connection:
             return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
+
