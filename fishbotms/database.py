@@ -69,35 +69,3 @@ class Database:
     def get_top(self):
         with self.connection:
             return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
-                self.cursor.execute(
-                    "INSERT INTO inventory (user_id, fish_name, count, total_price) VALUES (?, ?, 1, ?)", 
-                    (user_id, fish_name, price)
-                )
-
-    def get_inventory(self, user_id):
-        """Получаем весь инвентарь игрока"""
-        with self.connection:
-            return self.cursor.execute(
-                "SELECT fish_name, count, total_price FROM inventory WHERE user_id = ?", 
-                (user_id,)
-            ).fetchall()
-
-    def sell_all(self, user_id):
-        """Продаем всё содержимое инвентаря и обновляем баланс"""
-        with self.connection:
-            res = self.cursor.execute("SELECT SUM(total_price) FROM inventory WHERE user_id = ?", (user_id,)).fetchone()
-            total = round(res[0], 1) if res[0] else 0
-            
-            if total > 0:
-                # Обновляем баланс юзера, округляя до 1 знака
-                self.cursor.execute("UPDATE users SET balance = ROUND(balance + ?, 1) WHERE user_id = ?", (total, user_id))
-                # Очищаем инвентарь
-                self.cursor.execute("DELETE FROM inventory WHERE user_id = ?", (user_id,))
-            return total
-
-    def get_top(self):
-        """Топ-10 богатых игроков"""
-        with self.connection:
-            return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
-
-
