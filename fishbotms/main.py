@@ -55,11 +55,19 @@ def main_menu(balance=0):
     return kb.as_markup()
 
 # --- ОСНОВНЫЕ КОМАНДЫ ---
+
+# Теперь бот поймет и /start, и просто слова "меню", "рыбменю", "старт"
 @dp.message(Command("start"))
+@dp.message(F.text.lower().in_(["меню", "рыбменю", "старт"]))
 async def start(msg: types.Message):
     db.register_user(msg.from_user.id, msg.from_user.first_name)
     user = db.get_user(msg.from_user.id)
-    await msg.answer(f"Мир МС огромен... Твой баланс: <b>{round(user[2], 1)}</b> 💰", reply_markup=main_menu(user[2]))
+    # Округляем баланс, чтобы не было хвостов
+    bal = round(user[2], 1)
+    await msg.answer(
+        f"Мир МС огромен... Твой баланс: <b>{bal}</b> 💰", 
+        reply_markup=main_menu(bal)
+    )
 
 @dp.message(F.text.lower().in_(["фиш", "fish", "закинуть"]))
 async def qol_throw(msg: types.Message):
@@ -246,3 +254,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
