@@ -91,40 +91,74 @@ async def handle_callbacks(call: types.CallbackQuery):
     user = db.get_user(uid)
     now = datetime.now()
 
-    if call.data == "throw":
-        # ... твой код проверки КД и логика шансов ...
-        # (Оставляю как есть в твоем файле, не меняй там ничего)
-        if user[5]:
-            last_time = datetime.fromisoformat(user[5])
-            if now < last_time + timedelta(minutes=10):
-                wait = (last_time + timedelta(minutes=10) - now).seconds // 60
-                return await call.answer(f"⏳ Рыба пугливая! Жди {wait+1} мин.", show_alert=True)
+if call.data == "throw":
+        # 1. Проверка КД
+        if user[5]:
+            last_time = datetime.fromisoformat(user[5])
+            if now < last_time + timedelta(minutes=10):
+                wait = (last_time + timedelta(minutes=10) - now).seconds // 60
+                return await call.answer(f"⏳ Рыба пугливая! Жди {wait+1} мин.", show_alert=True)
 
-        current_loc = user[3]
-        current_bait = user[4]
-        
-        LOC_POOLS = {"Яма с радиацией": ["radioactive", "rotten"], "Лаборатория": ["blind", "honey", "fluffy"], "Пещера": ["spider", "amethyst"], "Деревня": ["beaver", "copper", "troll"], "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]}
-        
-        if random.random() < 0.005: fish_key = "irinalegend"
-        else:
-            target_fish = [k for k, v in FISH_DATA.items() if v.get("bait") == current_bait]
-            if target_fish and random.random() < 0.5: fish_key = random.choice(target_fish)
-            elif current_loc in LOC_POOLS and random.random() < 0.8: fish_key = random.choice(LOC_POOLS[current_loc])
-            else: fish_key = random.choice(LOC_POOLS["Океан"])
+        current_loc = user[3]
+        current_bait = user[4]
+        
+        # 2. Логика бассейнов (твоя без изменений)
+        LOC_POOLS = {
+            "Яма с радиацией": ["radioactive", "rotten"], 
+            "Лаборатория": ["blind", "honey", "fluffy"], 
+            "Пещера": ["spider", "amethyst"], 
+            "Деревня": ["beaver", "copper", "troll"], 
+            "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
+        }
+        
+        # 3. Выбор ключа рыбы (твои шансы)
+        if random.random() < 0.005: 
+            fish_key = "irinalegend"
+        else:
+            target_fish = [k for k, v in FISH_DATA.items() if v.get("bait") == current_bait]
+            if target_fish and random.random() < 0.5: 
+                fish_key = random.choice(target_fish)
+            elif current_loc in LOC_POOLS and random.random() < 0.8: 
+                fish_key = random.choice(LOC_POOLS[current_loc])
+            else: 
+                fish_key = random.choice(LOC_POOLS["Океан"])
 
-        if fish_key == "fluffy" and random.random() < 0.03: fish_key = "super_fluffy"
-        fish = FISH_DATA[fish_key]
-        weight = round(random.uniform(fish["weight"][0], fish["weight"][1]), 2)
-        price = round(weight * 5, 1)
-        
-        db.add_fish(uid, fish["name"], price)
-        with db.connection:
-            db.cursor.execute("UPDATE users SET bait = 'Нет', last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+        if fish_key == "fluffy" and random.random() < 0.03: 
+            fish_key = "super_fluffy"
+            
+        fish = FISH_DATA[fish_key]
 
-        img_path = os.path.join(IMG_DIR, fish["img"])
-        if os.path.exists(img_path):
-            await call.message.answer_sticker(sticker=FSInputFile(img_path))
-        await call.message.answer(f"🎣 <b>{call.from_user.first_name}</b> в <i>{current_loc}</i> выловил:\n🐟 <b>{fish['name']}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
+        # --- ВОТ ТУТ МАГИЯ МОДИФИКАТОРОВ ---
+        # Выбираем мод из списка FISH_MODS (который ты должен был вставить выше)
+        selected_mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
+        
+        # Собираем красивое название
+        prefix = selected_mod['p'] + " " if selected_mod['p'] else ""
+        final_name = f"{prefix}{fish['name']}"
+        
+        # Считаем вес и цену с учетом множителя 'm'
+        weight = round(random.uniform(fish["weight"][0], fish["weight"][1]) * selected_mod['m'], 2)
+        price = round(weight * 5, 1)
+        # -----------------------------------
+        
+        # Записываем final_name в базу
+        db.add_fish(uid, final_name, price)
+        
+        with db.connection:
+            db.cursor.execute("UPDATE users SET bait = 'Нет', last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+
+        # Отправка стикера
+        img_path = os.path.join(IMG_DIR, fish["img"])
+        if os.path.exists(img_path):
+            await call.message.answer_sticker(sticker=FSInputFile(img_path))
+            
+        # Финальный ответ в чат
+        await call.message.answer(
+            f"🎣 <b>{call.from_user.first_name}</b> в <i>{current_loc}</i> выловил:\n"
+            f"🐟 <b>{final_name}</b> ({weight} кг)\n"
+            f"💰 Цена: {price}", 
+            reply_markup=main_menu(user[2])
+        )
 
     elif call.data == "bait_menu":
         kb = InlineKeyboardBuilder()
@@ -193,3 +227,4 @@ async def handle_callbacks(call: types.CallbackQuery):
 
 async def main(): await dp.start_polling(bot)
 if __name__ == "__main__": asyncio.run(main())
+
