@@ -245,6 +245,63 @@ async def handle_callbacks(call: types.CallbackQuery):
 
     await call.answer()
 
+@dp.message(F.text.lower().in_(["сетка", "net", "сетку"]))
+async def use_grid(msg: types.Message):
+    uid = msg.from_user.id
+    user = db.get_user(uid)
+    if not user: return
+    
+    now = datetime.now()
+    
+    # Проверка КД (у сетки индекс 6, если добавил в БД последним)
+    # Если в БД еще нет поля, может выдать ошибку, тогда надо пересоздать таблицу или добавить вручную
+    if len(user) > 6 and user[6]:
+        last_grid = datetime.fromisoformat(user[6])
+        if now < last_grid + timedelta(hours=5):
+            wait = (last_grid + timedelta(hours=5) - now)
+            hours, remainder = divmod(wait.seconds, 3600)
+            minutes = remainder // 60
+            return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{hours}ч. {minutes}мин.</b>")
+
+    total_money = 0
+    catch_lines = []
+
+    # Цикл на 15 рыб
+    for _ in range(15):
+        # Выбираем случайную рыбу из всего списка (кроме легендарок с супер-шансом)
+        possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
+        
+        # Шанс на Ирину даже в сетке мизерный
+        if random.random() < 0.001: f_key = "irinalegend"
+        else: f_key = random.choice(possible_keys)
+        
+        fish = FISH_DATA[f_key]
+        mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
+        
+        prefix = mod['p'] + " " if mod['p'] else ""
+        final_name = f"{prefix}{fish['name']}"
+        
+        # Расчет веса и цены
+        w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
+        p = round(w * 5, 1)
+        
+        # Добавляем в инвентарь и в список для сообщения
+        db.add_fish(uid, final_name, p)
+        catch_lines.append(f"• {final_name} ({p} 💰)")
+        total_money += p
+
+    # Обновляем время использования сетки
+    with db.connection:
+        db.cursor.execute("UPDATE users SET last_grid_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+
+    # Формируем сообщение
+    response = (
+        f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил из воды:\n\n"
+        + "\n".join(catch_lines) +
+        f"\n\n<b>ВСЕГО ДЕНЕГ💰: {round(total_money, 1)}</b>"
+    )
+    
+    await msg.answer(response)
 # --- ЗАПУСК ---
 async def main():
     await dp.start_polling(bot)
@@ -254,4 +311,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
