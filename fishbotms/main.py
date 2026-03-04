@@ -11,11 +11,23 @@ from database import Database
 
 # --- НАСТРОЙКИ ---
 TOKEN = "8697429668:AAFt0n_JXHLaTdTKlc8GTef4ljRugakth0U"
-db = Database("data/fishing.db")
+
+# Находим путь к папке проекта
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Путь к папке data
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
+# --- МАГИЯ: Авто-создание папки ---
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+# Теперь подключаем базу, используя ПОЛНЫЙ ПУТЬ
+db_path = os.path.join(DATA_DIR, "fishing.db")
+db = Database(db_path)
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_DIR = os.path.join(BASE_DIR, "img")
 
 # --- ДАННЫЕ ---
@@ -317,4 +329,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
