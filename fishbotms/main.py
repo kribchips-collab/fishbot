@@ -11,7 +11,7 @@ from database import Database
 
 # --- НАСТРОЙКИ ---
 TOKEN = "8697429668:AAFt0n_JXHLaTdTKlc8GTef4ljRugakth0U"
-db = Database("fishing.db")
+db = Database("data/fishing.db")
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
@@ -317,3 +317,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
