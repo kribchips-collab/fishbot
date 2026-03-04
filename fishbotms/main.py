@@ -8,7 +8,20 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import FSInputFile
 from database import Database
+import os
 
+# Получаем абсолютно точный путь
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+db_path = os.path.join(BASE_DIR, "data", "fishing.db")
+
+print(f"DEBUG: Бот пытается открыть базу тут: {db_path}")
+
+if os.path.exists(db_path):
+    print(f"DEBUG: Файл найден! Размер: {os.path.getsize(db_path)} байт")
+else:
+    print("DEBUG: ФАЙЛА НЕТ! Бот создаст пустой.")
+
+db = Database(db_path)
 # --- НАСТРОЙКИ ---
 TOKEN = "8697429668:AAFt0n_JXHLaTdTKlc8GTef4ljRugakth0U"
 
@@ -329,5 +342,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
