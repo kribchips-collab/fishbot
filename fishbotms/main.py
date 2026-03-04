@@ -163,6 +163,26 @@ async def use_grid(msg: types.Message):
     await msg.answer(response)
 
 # --- СОЦИАЛЬНЫЕ КОМАНДЫ (ПЕРЕВОДЫ) ---
+@dp.message(F.text.lower().startswith("добавить"))
+async def add_to_collection_cmd(msg: types.Message):
+    fish_name = msg.text[9:].strip() # Берем всё, что после слова "добавить "
+    if not fish_name: return await msg.answer("⚠️ Напиши: <b>добавить [название рыбы]</b>")
+    
+    if db.move_to_collection(msg.from_user.id, fish_name):
+        await msg.answer(f"📦 Рыба <b>{fish_name}</b> убрана в коллекцию! (Она не продастся)")
+    else:
+        await msg.answer(f"❌ У тебя нет рыбы «{fish_name}» в инвентаре.")
+
+@dp.message(F.text.lower().startswith("убрать"))
+async def remove_from_collection_cmd(msg: types.Message):
+    fish_name = msg.text[7:].strip() # Берем всё, что после слова "убрать "
+    if not fish_name: return await msg.answer("⚠️ Напиши: <b>убрать [название рыбы]</b>")
+    
+    if db.remove_from_collection(msg.from_user.id, fish_name):
+        await msg.answer(f"🎒 Рыба <b>{fish_name}</b> вернулась в инвентарь.")
+    else:
+        await msg.answer(f"❌ В коллекции нет рыбы «{fish_name}»")
+        
 @dp.message(F.text.lower().startswith("передать"))
 async def transfer_money(msg: types.Message):
     if not msg.reply_to_message:
@@ -282,11 +302,37 @@ async def handle_callbacks(call: types.CallbackQuery):
             await call.message.edit_text(f"🧪 Наживка: <b>{new_u[4]}</b>", reply_markup=call.message.reply_markup)
         else: await call.answer("❌ Нет денег!", show_alert=True)
 
-    elif call.data == "inv":
+elif call.data == "inv":
         inv = db.get_inventory(uid)
-        text = f"🎒 Инвентарь:\n" + "\n".join([f"• {n} x{c} ({round(p, 1)}💰)" for n, c, p in inv])
-        kb = InlineKeyboardBuilder().button(text="💰 Продать всё", callback_data="sell_all").button(text="⬅️ Назад", callback_data="back")
-        await call.message.edit_text(text if inv else "🎒 Пусто", reply_markup=kb.as_markup())
+        # Формируем текст инвентаря
+        text = f"🎒 <b>Инвентарь:</b>\n"
+        if inv:
+            text += "\n".join([f"• {n} x{c} ({round(p, 1)}💰)" for n, c, p in inv])
+        else:
+            text += "Пусто..."
+
+        kb = InlineKeyboardBuilder()
+        kb.button(text="💰 Продать всё", callback_data="sell_all")
+        kb.button(text="🖼 Коллекция", callback_data="view_coll") # Добавляем кнопку
+        kb.button(text="⬅️ Назад", callback_data="back")
+        kb.adjust(2, 1) # Делаем 2 кнопки в ряд, и одну (Назад) под ними
+        
+        await call.message.edit_text(text, reply_markup=kb.as_markup())
+
+    elif call.data == "view_coll":
+        # Это новый блок для отображения коллекции
+        coll = db.get_collection(uid) # Эта функция должна быть в твоем новом database.py
+        text = f"🖼 <b>Твоя коллекция рыб:</b>\n\n"
+        if coll:
+            text += "\n".join([f"• {n} x{c} ({round(p, 1)}💰)" for n, c, p in coll])
+            text += "\n\n<i>Чтобы забрать рыбу, напиши: убрать [название]</i>"
+        else:
+            text += "Тут пока ничего нет. Используй команду <b>добавить [название]</b>, чтобы сохранить редкую рыбу!"
+
+        kb = InlineKeyboardBuilder()
+        kb.button(text="⬅️ Назад в инвентарь", callback_data="inv")
+        
+        await call.message.edit_text(text, reply_markup=kb.as_markup())
 
     elif call.data == "top":
         top = db.get_top()
@@ -330,3 +376,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
