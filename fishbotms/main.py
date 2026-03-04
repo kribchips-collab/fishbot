@@ -302,7 +302,7 @@ async def handle_callbacks(call: types.CallbackQuery):
             await call.message.edit_text(f"🧪 Наживка: <b>{new_u[4]}</b>", reply_markup=call.message.reply_markup)
         else: await call.answer("❌ Нет денег!", show_alert=True)
 
-elif call.data == "inv":
+    elif call.data == "inv":
         inv = db.get_inventory(uid)
         # Формируем текст инвентаря
         text = f"🎒 <b>Инвентарь:</b>\n"
@@ -376,4 +376,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
