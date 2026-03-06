@@ -118,13 +118,15 @@ class Database:
             return True
 
     def get_inventory(self, user_id):
-        """Получение инвентаря с красивой сортировкой по редкости и алфавиту"""
+        """Получение инвентаря: Ключ и Куб в самом верху, далее по редкости"""
         with self.connection:
             query = """
                 SELECT fish_name, count, total_price FROM inventory 
                 WHERE user_id = ? 
                 ORDER BY 
                     CASE 
+                        WHEN fish_name = 'Рыба-ключ' THEN -1
+                        WHEN fish_name = 'Кубик-фугу' THEN 0
                         WHEN fish_name LIKE '👑%' THEN 1
                         WHEN fish_name LIKE '🔸%' THEN 2
                         WHEN fish_name LIKE '🪵%' THEN 3
@@ -139,13 +141,15 @@ class Database:
             return self.cursor.execute(query, (user_id,)).fetchall()
 
     def get_collection(self, user_id):
-        """Получение коллекции с красивой сортировкой по редкости и алфавиту"""
+        """Получение коллекции: Ключ и Куб в самом верху, далее по редкости"""
         with self.connection:
             query = """
                 SELECT fish_name, count, total_price FROM collection 
                 WHERE user_id = ? 
                 ORDER BY 
                     CASE 
+                        WHEN fish_name = 'Рыба-ключ' THEN -1
+                        WHEN fish_name = 'Кубик-фугу' THEN 0
                         WHEN fish_name LIKE '👑%' THEN 1
                         WHEN fish_name LIKE '🔸%' THEN 2
                         WHEN fish_name LIKE '🪵%' THEN 3
@@ -171,3 +175,4 @@ class Database:
     def get_top(self):
         with self.connection:
             return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
+
