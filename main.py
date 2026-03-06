@@ -363,7 +363,7 @@ async def handle_callbacks(call: types.CallbackQuery):
         if os.path.exists(img_path): 
             await call.message.answer_sticker(sticker=FSInputFile(img_path))
         
-        await call.message.answer(f"🎣 <b>{final_name}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
+        await call.message.answer(f"🎣<b>{call.from_user.first_name}</b> вытащил <b>{final_name}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
 
     elif call.data == "boxes_menu":
         kb = InlineKeyboardBuilder()
@@ -504,6 +504,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
 
