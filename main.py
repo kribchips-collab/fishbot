@@ -145,17 +145,24 @@ async def use_grid(msg: types.Message):
     catch_lines = []
 
     for _ in range(15):
-        possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
-        if random.random() < 0.001: f_key = "irinalegend"
-        else: f_key = random.choice(possible_keys)
+        # Собираем список обычной рыбы (БЕЗ Ирины, пушистой, ключей и кубиков)
+        possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy", "key_fish", "magic_cube"]]
         
+        # Оставляем маааленький шанс (0.1%) на Медузу Ирину из сетки
+        if random.random() < 0.001: 
+            f_key = "irinalegend"
+        else: 
+            f_key = random.choice(possible_keys)
+            
         fish = FISH_DATA[f_key]
         mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
         
         prefix = mod['p'] + " " if mod['p'] else ""
-        final_name = f"{prefix}{fish['name']}"
+        final_name = f"{prefix}{fish['name']}".strip()
+        
+        # Вес и цена
         w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
-        p = round(w * 5, 1)
+        p = round(w * 5, 1) if "price" not in fish else fish["price"]
         
         db.add_fish(uid, final_name, p)
         catch_lines.append(f"• {final_name} ({p} 💰)")
@@ -170,13 +177,15 @@ async def use_grid(msg: types.Message):
 # --- СОЦИАЛЬНЫЕ КОМАНДЫ (ПЕРЕВОДЫ) ---
 @dp.message(F.text.lower().startswith("добавить"))
 async def add_to_collection_cmd(msg: types.Message):
-    fish_name = msg.text[9:].strip() # Берем всё, что после слова "добавить "
+    fish_name = msg.text[9:].strip() 
     if not fish_name: return await msg.answer("⚠️ Напиши: <b>добавить [название рыбы]</b>")
     
+    # Мы передаем название как есть, но в базе будем сравнивать хитрее
     if db.move_to_collection(msg.from_user.id, fish_name):
-        await msg.answer(f"📦 Рыба <b>{fish_name}</b> убрана в коллекцию! (Она не продастся)")
+        await msg.answer(f"📦 Рыба <b>{fish_name}</b> убрана в коллекцию!")
     else:
-        await msg.answer(f"❌ У тебя нет рыбы «{fish_name}» в инвентаре.")
+        # Если не нашло, попробуем подсказать
+        await msg.answer(f"❌ Не нашел «{fish_name}». Проверь название в инвентаре (копируй точно с эмодзи!).")
 
 @dp.message(F.text.lower().startswith("убрать"))
 async def remove_from_collection_cmd(msg: types.Message):
