@@ -45,8 +45,8 @@ FISH_DATA = {
     "troll": {"name": "Рыба-тролль", "weight": (0.1, 8.0), "loc": "Деревня", "bait": "Кусок дерева", "img": "troll_fish.png"},
     "super_fluffy": {"name": "🐱СВЕРХ-ПУШИСТАЯ РЫБА", "weight": (3.0, 5.0), "loc": "Спец", "bait": None, "img": "super_fluffy.png"},
     "irinalegend": {"name": "🪼 МЕДУЗА ИРИНА", "weight": (20.0, 30.0), "loc": "Везде", "bait": None, "img": "irina.png"},
-    "key_fish": {"name": "Рыба-ключ", "weight": (0.1, 0.1), "price": 1, "img": "key.png"},
-    "magic_cube": {"name": "Кубик-фугу", "weight": (0.5, 0.5), "price": 1, "img": "cube.png"},
+    "key_fish": {"name": "🔑Рыба-ключ🔑", "weight": (0.1, 0.1), "price": 1, "img": "key.png"},
+    "magic_cube": {"name": "🎲Кубик-фугу🎲", "weight": (0.5, 0.5), "price": 1, "img": "cube.png"},
 }
 
 ALMANAC_TEXT = """
@@ -145,17 +145,24 @@ async def use_grid(msg: types.Message):
     catch_lines = []
 
     for _ in range(15):
-        possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
-        if random.random() < 0.001: f_key = "irinalegend"
-        else: f_key = random.choice(possible_keys)
+        # Собираем список обычной рыбы (БЕЗ Ирины, пушистой, ключей и кубиков)
+        possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy", "key_fish", "magic_cube"]]
         
+        # Оставляем маааленький шанс (0.1%) на Медузу Ирину из сетки
+        if random.random() < 0.001: 
+            f_key = "irinalegend"
+        else: 
+            f_key = random.choice(possible_keys)
+            
         fish = FISH_DATA[f_key]
         mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
         
         prefix = mod['p'] + " " if mod['p'] else ""
-        final_name = f"{prefix}{fish['name']}"
+        final_name = f"{prefix}{fish['name']}".strip()
+        
+        # Вес и цена
         w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
-        p = round(w * 5, 1)
+        p = round(w * 5, 1) if "price" not in fish else fish["price"]
         
         db.add_fish(uid, final_name, p)
         catch_lines.append(f"• {final_name} ({p} 💰)")
@@ -495,6 +502,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
 
