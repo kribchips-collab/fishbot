@@ -463,8 +463,16 @@ async def handle_callbacks(call: types.CallbackQuery):
         await call.message.edit_text(text, reply_markup=kb.as_markup())
 
     elif call.data == "top":
-        top = db.get_top()
-        text = "🏆 <b>ТОП:</b>\n\n" + "\n".join([f"{i}. {n} — {round(b, 1)}💰" for i, (n, b) in enumerate(top, 1)])
+        # Важно: функция db.get_top_players() должна возвращать (name, balance, inv_sum, coll_sum)
+        top_list = db.get_top_players() 
+        text = "🏆 <b>ТОП РЫБОЛОВОВ:</b>\n\n"
+        
+        for i, (name, balance, inv_sum, coll_sum) in enumerate(top_list, 1):
+            liquid = round(balance + inv_sum, 1)
+            total = round(balance + inv_sum + coll_sum, 1)
+            username = name if name else "Рыбак"
+            text += f"{i}. <b>{username}</b> — {liquid}💰, <i>{total}💰 с колл.</i>\n"
+            
         kb = InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data="back")
         await call.message.edit_text(text, reply_markup=kb.as_markup())
 
@@ -504,6 +512,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
 
