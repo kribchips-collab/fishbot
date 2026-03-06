@@ -295,7 +295,7 @@ async def handle_callbacks(call: types.CallbackQuery):
                 wait = (last_time + timedelta(minutes=10) - now).seconds // 60
                 return await call.answer(f"⏳ Жди {wait+1} мин.", show_alert=True)
 
-current_loc, current_bait = user[3], user[4]
+        current_loc, current_bait = user[3], user[4]
         
         # --- ЛОГИКА ШАНСОВ НА КЛЮЧ И КУБИК ---
         key_chance = 0.05
@@ -495,5 +495,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
