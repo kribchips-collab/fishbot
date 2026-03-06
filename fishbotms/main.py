@@ -177,13 +177,15 @@ async def use_grid(msg: types.Message):
 # --- СОЦИАЛЬНЫЕ КОМАНДЫ (ПЕРЕВОДЫ) ---
 @dp.message(F.text.lower().startswith("добавить"))
 async def add_to_collection_cmd(msg: types.Message):
-    fish_name = msg.text[9:].strip() # Берем всё, что после слова "добавить "
+    fish_name = msg.text[9:].strip() 
     if not fish_name: return await msg.answer("⚠️ Напиши: <b>добавить [название рыбы]</b>")
     
+    # Мы передаем название как есть, но в базе будем сравнивать хитрее
     if db.move_to_collection(msg.from_user.id, fish_name):
-        await msg.answer(f"📦 Рыба <b>{fish_name}</b> убрана в коллекцию! (Она не продастся)")
+        await msg.answer(f"📦 Рыба <b>{fish_name}</b> убрана в коллекцию!")
     else:
-        await msg.answer(f"❌ У тебя нет рыбы «{fish_name}» в инвентаре.")
+        # Если не нашло, попробуем подсказать
+        await msg.answer(f"❌ Не нашел «{fish_name}». Проверь название в инвентаре (копируй точно с эмодзи!).")
 
 @dp.message(F.text.lower().startswith("убрать"))
 async def remove_from_collection_cmd(msg: types.Message):
@@ -502,6 +504,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
 
