@@ -43,8 +43,10 @@ FISH_DATA = {
     "fluffy": {"name": "Пушистая рыба", "weight": (1.0, 2.0), "loc": "Лаборатория", "bait": "Кошачий корм", "img": "fluffy_fish.png"},
     "amethyst": {"name": "Аметистовый карп", "weight": (2.0, 2.5), "loc": "Пещера", "bait": "Осколок трезубца", "img": "amethyst_fish.png"},
     "troll": {"name": "Рыба-тролль", "weight": (0.1, 8.0), "loc": "Деревня", "bait": "Кусок дерева", "img": "troll_fish.png"},
-    "super_fluffy": {"name": "СВЕРХ-ПУШИСТАЯ РЫБА", "weight": (3.0, 5.0), "loc": "Спец", "bait": None, "img": "super_fluffy.png"},
-    "irinalegend": {"name": "🪼 МЕДУЗА ИРИНА", "weight": (20.0, 30.0), "loc": "Везде", "bait": None, "img": "irina.png"}
+    "super_fluffy": {"name": "🐱СВЕРХ-ПУШИСТАЯ РЫБА", "weight": (3.0, 5.0), "loc": "Спец", "bait": None, "img": "super_fluffy.png"},
+    "irinalegend": {"name": "🪼 МЕДУЗА ИРИНА", "weight": (20.0, 30.0), "loc": "Везде", "bait": None, "img": "irina.png"},
+    "key_fish": {"name": "Рыба-ключ", "weight": (0.1, 0.1), "price": 1, "img": "key.png"},
+    "magic_cube": {"name": "Кубик-фугу", "weight": (0.5, 0.5), "price": 1, "img": "cube.png"},
 }
 
 ALMANAC_TEXT = """
@@ -73,9 +75,11 @@ ALMANAC_TEXT = """
 """
 
 LOCATIONS = {"Яма с радиацией": "☢️ Яма", "Лаборатория": "🧪 Лаборатория", "Пещера": "🕸 Пещера", "Деревня": "🏘 Деревня", "Океан": "🌊 Океан"}
-BAITS = {"Гниль": 10, "Мясо монстра": 10, "Радиоактивный червь": 10, "Кусок дерева": 10, "Баночка мёда": 10, "Кошачий корм": 10, "Осколок трезубца": 10, "Медный кусочек": 10, "Линза": 10}
+BAITS = {"Гниль": 10, "Мясо монстра": 10, "Радиоактивный червь": 10, "Кусок дерева": 10, "Баночка мёда": 10, "Кошачий корм": 10, "Осколок трезубца": 10, "Медный кусочек": 10, "Линза": 10, "Магнит": 50}
 
 FISH_MODS = [
+    {"p": "🌶️ Перцеподобный", "m": 0.1, "w": 1}, # Редкий ужас
+    {"p": "🪵 Деревянный", "m": 1.5, "w": 12}, # Локальный мем
     {"p": "🐢 Вялый", "m": 0.5, "w": 15},
     {"p": "🤢 Гнилой", "m": 0.7, "w": 15},
     {"p": "", "m": 1.0, "w": 40},
@@ -91,6 +95,7 @@ def main_menu(balance=0):
     kb.row(types.InlineKeyboardButton(text="🗺️ Локации", callback_data="loc"), types.InlineKeyboardButton(text="🧪 Наживка", callback_data="bait_menu"))
     kb.row(types.InlineKeyboardButton(text="📖 Альманах", callback_data="almanac"), types.InlineKeyboardButton(text="🕸 Сетка", callback_data="grid_call"))
     kb.row(types.InlineKeyboardButton(text="🏆 Топ", callback_data="top"), types.InlineKeyboardButton(text=f"💰 {round(balance, 1)}", callback_data="stats"))
+    kb.row(types.InlineKeyboardButton(text="📦 Боксы", callback_data="boxes_menu"))
     return kb.as_markup()
 
 # --- ОСНОВНЫЕ КОМАНДЫ ---
@@ -182,6 +187,49 @@ async def remove_from_collection_cmd(msg: types.Message):
         await msg.answer(f"🎒 Рыба <b>{fish_name}</b> вернулась в инвентарь.")
     else:
         await msg.answer(f"❌ В коллекции нет рыбы «{fish_name}»")
+
+@dp.message(F.text.lower().startswith("переброс"))
+async def reroll_cmd(msg: types.Message):
+    uid = msg.from_user.id
+    fish_name = msg.text[9:].strip() # Название рыбы после команды
+    
+    if not fish_name: 
+        return await msg.answer("⚠️ Напиши: <b>переброс [название рыбы]</b>")
+
+    # Проверяем наличие кубика в инвентаре
+    inv = db.get_inventory(uid)
+    has_cube = any(item[0] == "Кубик-фугу" for item in inv)
+    has_fish = any(item[0].lower() == fish_name.lower() for item in inv)
+
+    if not has_cube: return await msg.answer("❌ У тебя нет <b>Кубика-фугу</b>!")
+    if not has_fish: return await msg.answer(f"❌ У тебя нет рыбы <b>{fish_name}</b>!")
+
+    # Находим рыбу в инвентаре для получения её цены (базовой)
+    current_fish = next(item for item in inv if item[0].lower() == fish_name.lower())
+    
+    # 1. Удаляем кубик и старую рыбу
+    with db.connection:
+        db.cursor.execute("UPDATE inventory SET count = count - 1 WHERE user_id = ? AND fish_name = 'Кубик-фугу'", (uid,))
+        db.cursor.execute("DELETE FROM inventory WHERE count <= 0")
+        db.cursor.execute("DELETE FROM inventory WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", (uid, fish_name))
+
+    # 2. Генерируем новый мод (кроме Деревянного/Золотого по желанию, но давай все)
+    new_mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
+    
+    # Пытаемся очистить старое имя от префикса, чтобы приклеить новый
+    pure_name = fish_name
+    for m in FISH_MODS:
+        if m['p'] and fish_name.startswith(m['p']):
+            pure_name = fish_name.replace(m['p'], "").strip()
+            break
+            
+    final_name = f"{new_mod['p']} {pure_name}".strip()
+    
+    # Считаем новую цену (примерно)
+    new_price = round(current_fish[2] * new_mod['m'], 1)
+    
+    db.add_fish(uid, final_name, new_price)
+    await msg.answer(f"🎲 <b>Кубик-фугу активирован!</b>\nТеперь у тебя: <b>{final_name}</b>")
         
 @dp.message(F.text.lower().startswith("передать"))
 async def transfer_money(msg: types.Message):
@@ -247,36 +295,107 @@ async def handle_callbacks(call: types.CallbackQuery):
                 wait = (last_time + timedelta(minutes=10) - now).seconds // 60
                 return await call.answer(f"⏳ Жди {wait+1} мин.", show_alert=True)
 
-        current_loc, current_bait = user[3], user[4]
-        LOC_POOLS = {
-            "Яма с радиацией": ["radioactive", "rotten"], "Лаборатория": ["blind", "honey", "fluffy"], 
-            "Пещера": ["spider", "amethyst"], "Деревня": ["beaver", "copper", "troll"], 
-            "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy"]]
-        }
+current_loc, current_bait = user[3], user[4]
         
-        if random.random() < 0.005: fish_key = "irinalegend"
+        # --- ЛОГИКА ШАНСОВ НА КЛЮЧ И КУБИК ---
+        key_chance = 0.05
+        if current_bait == "Магнит": key_chance += 0.15 # +15% от магнита
+        
+        roll = random.random()
+        
+        if roll < key_chance:
+            fish_key = "key_fish"
+            mod = {"p": "", "m": 1.0} # У ключа нет модов
+        elif roll < key_chance + 0.02: # +2% шанс на кубик
+            fish_key = "magic_cube"
+            mod = {"p": "", "m": 1.0} # У кубика нет модов
         else:
-            target = [k for k, v in FISH_DATA.items() if v.get("bait") == current_bait]
-            if target and random.random() < 0.5: fish_key = random.choice(target)
-            elif current_loc in LOC_POOLS and random.random() < 0.8: fish_key = random.choice(LOC_POOLS[current_loc])
-            else: fish_key = random.choice(LOC_POOLS["Океан"])
+            # ОБЫЧНАЯ РЫБАЛКА (твой старый список, но без ключей/кубиков)
+            LOC_POOLS = {
+                "Яма с радиацией": ["radioactive", "rotten"], 
+                "Лаборатория": ["blind", "honey", "fluffy"], 
+                "Пещера": ["spider", "amethyst"], 
+                "Деревня": ["beaver", "copper", "troll"], 
+                "Океан": [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy", "key_fish", "magic_cube"]]
+            }
+            
+            if random.random() < 0.005: 
+                fish_key = "irinalegend"
+            else:
+                target = [k for k, v in FISH_DATA.items() if v.get("bait") == current_bait]
+                if target and random.random() < 0.5: 
+                    fish_key = random.choice(target)
+                elif current_loc in LOC_POOLS and random.random() < 0.8: 
+                    fish_key = random.choice(LOC_POOLS[current_loc])
+                else: 
+                    fish_key = random.choice(LOC_POOLS["Океан"])
 
-        if fish_key == "fluffy" and random.random() < 0.03: fish_key = "super_fluffy"
+            if fish_key == "fluffy" and random.random() < 0.03: 
+                fish_key = "super_fluffy"
+            
+            # Выбираем модификатор только для обычной рыбы
+            mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
+
+        # Общие расчеты
         fish = FISH_DATA[fish_key]
-        mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
-        
-        final_name = f"{mod['p'] + ' ' if mod['p'] else ''}{fish['name']}"
+        final_name = f"{mod['p'] + ' ' if mod['p'] else ''}{fish['name']}".strip()
         weight = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
-        price = round(weight * 5, 1)
+        
+        # Цена (у ключей и кубиков она будет 1, как в FISH_DATA)
+        price = round(weight * 5, 1) if "price" not in fish else fish["price"]
 
+        # Сохраняем в базу и обновляем время/наживку
         db.add_fish(uid, final_name, price)
         with db.connection:
             db.cursor.execute("UPDATE users SET bait = 'Нет', last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
 
+        # Отправка картинки (стикера)
         img_path = os.path.join(IMG_DIR, fish["img"])
-        if os.path.exists(img_path): await call.message.answer_sticker(sticker=FSInputFile(img_path))
+        if os.path.exists(img_path): 
+            await call.message.answer_sticker(sticker=FSInputFile(img_path))
         
         await call.message.answer(f"🎣 <b>{final_name}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
+
+    elif call.data == "boxes_menu":
+        kb = InlineKeyboardBuilder()
+        kb.row(types.InlineKeyboardButton(text="📦 Обычный (1 🔑)", callback_data="buybox_common"))
+        kb.row(types.InlineKeyboardButton(text="📦 Бодрый (3 🔑)", callback_data="buybox_cheerful"))
+        kb.row(types.InlineKeyboardButton(text="📦 Сильный (7 🔑)", callback_data="buybox_strong"))
+        kb.row(types.InlineKeyboardButton(text="📦 Золотой (15 🔑)", callback_data="buybox_gold"))
+        kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
+        await call.message.edit_text("🎁 <b>Магазин боксов</b>\nОбменяй 🔑 на рыбу!", reply_markup=kb.as_markup())
+
+    elif call.data.startswith("buybox_"):
+        box_type = call.data.split("_")[1]
+        costs = {"common": 1, "cheerful": 3, "strong": 7, "gold": 15}
+        target_mods = {"common": "", "cheerful": "🔹 Бодрый", "strong": "🔸 Сильный", "gold": "👑 Золотой"}
+        
+        cost = costs[box_type]
+        inv = db.get_inventory(uid)
+        
+        # Считаем сколько ключей у игрока
+        key_count = sum(item[1] for item in inv if "Рыба-ключ" in item[0])
+
+        if key_count < cost:
+            return await call.answer(f"❌ Нужно {cost} ключей! У тебя: {key_count}", show_alert=True)
+
+        # Удаляем ключи (1 или несколько)
+        with db.connection:
+            # Это удалит одну запись ключа. Если их много, надо будет вызвать несколько раз или поправить в базе.
+            db.cursor.execute("UPDATE inventory SET count = count - 1 WHERE user_id = ? AND fish_name = 'Рыба-ключ'", (uid,))
+            db.cursor.execute("DELETE FROM inventory WHERE count <= 0")
+
+        # Выдаем рандомную рыбу (кроме спец-рыб)
+        f_key = random.choice([k for k in FISH_DATA.keys() if k not in ["key_fish", "magic_cube", "irinalegend", "super_fluffy"]])
+        fish = FISH_DATA[f_key]
+        prefix = target_mods[box_type]
+        final_name = f"{prefix} {fish['name']}".strip()
+        
+        # Хорошая цена для бокса
+        price = round(random.uniform(fish["weight"][0], fish["weight"][1]) * 10, 1) 
+        
+        db.add_fish(uid, final_name, price)
+        await call.message.answer(f"🎊 Из бокса выпрыгнула: <b>{final_name}</b>!")
 
     elif call.data == "almanac":
         kb = InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data="back")
