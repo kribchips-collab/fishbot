@@ -23,7 +23,7 @@ class Database:
                 count INTEGER DEFAULT 0,
                 total_price REAL DEFAULT 0.0
             )""")
-            # НОВАЯ ТАБЛИЦА КОЛЛЕКЦИИ
+            # ТАБЛИЦА КОЛЛЕКЦИИ
             self.cursor.execute("""CREATE TABLE IF NOT EXISTS collection (
                 user_id INTEGER,
                 fish_name TEXT,
@@ -48,6 +48,7 @@ class Database:
                 f"SELECT count FROM {table} WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", 
                 (user_id, fish_name)
             ).fetchone()
+            
             if item:
                 self.cursor.execute(
                     f"UPDATE {table} SET count = count + 1, total_price = ROUND(total_price + ?, 1) "
@@ -71,11 +72,18 @@ class Database:
             if not res or res[0] <= 0: return False
             
             price_one = round(res[1] / res[0], 1)
+            
             # Убираем из инвентаря
             if res[0] > 1:
-                self.cursor.execute("UPDATE inventory SET count = count - 1, total_price = ROUND(total_price - ?, 1) WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", (price_one, user_id, fish_name))
+                self.cursor.execute(
+                    "UPDATE inventory SET count = count - 1, total_price = ROUND(total_price - ?, 1) WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", 
+                    (price_one, user_id, fish_name)
+                )
             else:
-                self.cursor.execute("DELETE FROM inventory WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", (user_id, fish_name))
+                self.cursor.execute(
+                    "DELETE FROM inventory WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", 
+                    (user_id, fish_name)
+                )
             
             # Добавляем в коллекцию
             self.add_fish(user_id, fish_name, price_one, table="collection")
@@ -92,23 +100,64 @@ class Database:
             if not res or res[0] <= 0: return False
             
             price_one = round(res[1] / res[0], 1)
+            
             # Убираем из коллекции
             if res[0] > 1:
-                self.cursor.execute("UPDATE collection SET count = count - 1, total_price = ROUND(total_price - ?, 1) WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", (price_one, user_id, fish_name))
+                self.cursor.execute(
+                    "UPDATE collection SET count = count - 1, total_price = ROUND(total_price - ?, 1) WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", 
+                    (price_one, user_id, fish_name)
+                )
             else:
-                self.cursor.execute("DELETE FROM collection WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", (user_id, fish_name))
+                self.cursor.execute(
+                    "DELETE FROM collection WHERE user_id = ? AND fish_name = ? COLLATE NOCASE", 
+                    (user_id, fish_name)
+                )
             
             # Возвращаем в инвентарь
             self.add_fish(user_id, fish_name, price_one, table="inventory")
             return True
 
     def get_inventory(self, user_id):
+        """Получение инвентаря с красивой сортировкой по редкости и алфавиту"""
         with self.connection:
-            return self.cursor.execute("SELECT fish_name, count, total_price FROM inventory WHERE user_id = ?", (user_id,)).fetchall()
+            query = """
+                SELECT fish_name, count, total_price FROM inventory 
+                WHERE user_id = ? 
+                ORDER BY 
+                    CASE 
+                        WHEN fish_name LIKE '👑%' THEN 1
+                        WHEN fish_name LIKE '🔸%' THEN 2
+                        WHEN fish_name LIKE '🪵%' THEN 3
+                        WHEN fish_name LIKE '🔹%' THEN 4
+                        WHEN fish_name LIKE '🤢%' THEN 5
+                        WHEN fish_name LIKE '🐢%' THEN 6
+                        WHEN fish_name LIKE '🌶️%' THEN 7
+                        ELSE 8 
+                    END, 
+                    fish_name ASC
+            """
+            return self.cursor.execute(query, (user_id,)).fetchall()
 
     def get_collection(self, user_id):
+        """Получение коллекции с красивой сортировкой по редкости и алфавиту"""
         with self.connection:
-            return self.cursor.execute("SELECT fish_name, count, total_price FROM collection WHERE user_id = ?", (user_id,)).fetchall()
+            query = """
+                SELECT fish_name, count, total_price FROM collection 
+                WHERE user_id = ? 
+                ORDER BY 
+                    CASE 
+                        WHEN fish_name LIKE '👑%' THEN 1
+                        WHEN fish_name LIKE '🔸%' THEN 2
+                        WHEN fish_name LIKE '🪵%' THEN 3
+                        WHEN fish_name LIKE '🔹%' THEN 4
+                        WHEN fish_name LIKE '🤢%' THEN 5
+                        WHEN fish_name LIKE '🐢%' THEN 6
+                        WHEN fish_name LIKE '🌶️%' THEN 7
+                        ELSE 8 
+                    END, 
+                    fish_name ASC
+            """
+            return self.cursor.execute(query, (user_id,)).fetchall()
 
     def sell_all(self, user_id):
         with self.connection:
