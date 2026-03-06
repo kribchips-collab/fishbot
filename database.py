@@ -172,7 +172,20 @@ class Database:
                 self.cursor.execute("DELETE FROM inventory WHERE user_id = ?", (user_id,))
             return total
 
-    def get_top(self):
-        with self.connection:
-            return self.cursor.execute("SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
+    def get_top_players(self):
+    """Получение ТОП-10 игроков по общему состоянию (баланс + инвентарь + коллекция)"""
+    with self.connection:
+        query = """
+            SELECT 
+                u.username, 
+                u.balance,
+                -- Сумма цен рыб в инвентаре
+                (SELECT IFNULL(SUM(total_price), 0) FROM inventory WHERE user_id = u.user_id) as inv_sum,
+                -- Сумма цен рыб в коллекции
+                (SELECT IFNULL(SUM(total_price), 0) FROM collection WHERE user_id = u.user_id) as coll_sum
+            FROM users u
+            ORDER BY (u.balance + inv_sum + coll_sum) DESC
+            LIMIT 10
+        """
+        return self.cursor.execute(query).fetchall()
 
