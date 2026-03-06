@@ -95,7 +95,7 @@ def main_menu(balance=0):
     kb.row(types.InlineKeyboardButton(text="🗺️ Локации", callback_data="loc"), types.InlineKeyboardButton(text="🧪 Наживка", callback_data="bait_menu"))
     kb.row(types.InlineKeyboardButton(text="📖 Альманах", callback_data="almanac"), types.InlineKeyboardButton(text="🕸 Сетка", callback_data="grid_call"))
     kb.row(types.InlineKeyboardButton(text="🏆 Топ", callback_data="top"), types.InlineKeyboardButton(text=f"💰 {round(balance, 1)}", callback_data="stats"))
-    kb.row(types.InlineKeyboardButton(text="📦 Боксы", callback_data="boxes_menu"))
+    kb.row(types.InlineKeyboardButton(text="📦 Ящики", callback_data="boxes_menu"))
     return kb.as_markup()
 
 # --- ОСНОВНЫЕ КОМАНДЫ ---
@@ -348,39 +348,68 @@ async def handle_callbacks(call: types.CallbackQuery):
 
     elif call.data == "boxes_menu":
         kb = InlineKeyboardBuilder()
-        kb.row(types.InlineKeyboardButton(text="📦 Обычный (1 🔑)", callback_data="buybox_common"))
-        kb.row(types.InlineKeyboardButton(text="📦 Бодрый (3 🔑)", callback_data="buybox_cheerful"))
-        kb.row(types.InlineKeyboardButton(text="📦 Сильный (7 🔑)", callback_data="buybox_strong"))
-        kb.row(types.InlineKeyboardButton(text="📦 Золотой (15 🔑)", callback_data="buybox_gold"))
+        # Добавил деревянный и переименовал всё в ящики
+        kb.row(types.InlineKeyboardButton(text="📦 Обычный (1 🔑)", callback_data="buychest_common"))
+        kb.row(types.InlineKeyboardButton(text="🔹📦 Бодрый (3 🔑)", callback_data="buychest_cheerful"))
+        kb.row(types.InlineKeyboardButton(text="🪵📦 Деревянный (5 🔑)", callback_data="buychest_wooden"))
+        kb.row(types.InlineKeyboardButton(text="🔸📦 Сильный (7 🔑)", callback_data="buychest_strong"))
+        kb.row(types.InlineKeyboardButton(text="👑📦 Золотой (15 🔑)", callback_data="buychest_gold"))
         kb.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back"))
-        await call.message.edit_text("🎁 <b>Магазин боксов</b>\nОбменяй 🔑 на рыбу!", reply_markup=kb.as_markup())
-
-    elif call.data.startswith("buybox_"):
-        box_type = call.data.split("_")[1]
-        costs = {"common": 1, "cheerful": 3, "strong": 7, "gold": 15}
-        target_mods = {"common": "", "cheerful": "🔹 Бодрый", "strong": "🔸 Сильный", "gold": "👑 Золотой"}
+        await call.message.edit_text("🎁 <b>Магазин ящиков</b>\nОбменяй 🔑 на редкую рыбу!", reply_markup=kb.as_markup())
         
-        cost = costs[box_type]
+    elif call.data.startswith("buychest_"):
+        chest_type = call.data.split("_")[1]
+        
+        # Словари с ценами и префиксами
+        costs = {
+            "common": 1, 
+            "cheerful": 3, 
+            "wooden": 5,   # Твой новый ящик
+            "strong": 7, 
+            "gold": 15
+        }
+        target_mods = {
+            "common": "", 
+            "cheerful": "🔹 Бодрый", 
+            "wooden": "🪵 Деревянный", 
+            "strong": "🔸 Сильный", 
+            "gold": "👑 Золотой"
+        }
+        
+        cost = costs[chest_type]
         inv = db.get_inventory(uid)
         
-        key_count = sum(item[1] for item in inv if "Рыба-ключ" in item[0])
+        # Считаем ключи в инвентаре
+        key_count = 0
+        for item in inv:
+            if "Рыба-ключ" in item[0]:
+                key_count = item[1]
+                break
 
         if key_count < cost:
             return await call.answer(f"❌ Нужно {cost} ключей! У тебя: {key_count}", show_alert=True)
 
+        # СПИСАНИЕ КЛЮЧЕЙ (Исправил count - 1 на count - cost)
         with db.connection:
-            db.cursor.execute("UPDATE inventory SET count = count - 1 WHERE user_id = ? AND fish_name = 'Рыба-ключ'", (uid,))
+            db.cursor.execute(
+                "UPDATE inventory SET count = count - ? WHERE user_id = ? AND fish_name = 'Рыба-ключ'", 
+                (cost, uid)
+            )
+            # Удаляем строку, если ключи кончились
             db.cursor.execute("DELETE FROM inventory WHERE count <= 0")
 
+        # Выбираем рыбу (исключаем спец-предметы)
         f_key = random.choice([k for k in FISH_DATA.keys() if k not in ["key_fish", "magic_cube", "irinalegend", "super_fluffy"]])
         fish = FISH_DATA[f_key]
-        prefix = target_mods[box_type]
+        
+        prefix = target_mods[chest_type]
         final_name = f"{prefix} {fish['name']}".strip()
         
+        # Генерируем цену на основе веса
         price = round(random.uniform(fish["weight"][0], fish["weight"][1]) * 10, 1) 
         
         db.add_fish(uid, final_name, price)
-        await call.message.answer(f"🎊 Из бокса выпрыгнула: <b>{final_name}</b>!")
+        await call.message.answer(f"🎊 Из ящика выпрыгнула: <b>{final_name}</b>!")
 
     elif call.data == "almanac":
         kb = InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data="back")
@@ -486,3 +515,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
