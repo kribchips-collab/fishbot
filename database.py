@@ -188,3 +188,22 @@ class Database:
                 LIMIT 10
             """
             return self.cursor.execute(query).fetchall()
+            
+    def get_top_clans(self):
+        """Получение ТОП-10 кланов по общему состоянию участников"""
+        with self.connection:
+            query = """
+                SELECT 
+                    c.name, 
+                    SUM(
+                        u.balance + 
+                        (SELECT IFNULL(SUM(total_price), 0) FROM inventory WHERE user_id = u.user_id) +
+                        (SELECT IFNULL(SUM(total_price), 0) FROM collection WHERE user_id = u.user_id)
+                    ) as clan_wealth
+                FROM clans c
+                JOIN users u ON c.id = u.clan_id
+                GROUP BY c.id
+                ORDER BY clan_wealth DESC
+                LIMIT 10
+            """
+            return self.cursor.execute(query).fetchall()
