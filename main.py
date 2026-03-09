@@ -11,25 +11,32 @@ from database import Database
 
 # --- НАСТРОЙКИ ---
 TOKEN = "8697429668:AAFt0n_JXHLaTdTKlc8GTef4ljRugakth0U"
-
-# Тот самый правильный путь для сохранения базы на этом хостинге
 DB_PATH = "/app/data/fishing.db"
 
-# На всякий случай просим питон создать папку, если хостинг вдруг забыл
 try:
     os.makedirs("/app/data", exist_ok=True)
 except Exception:
-    pass # Если ругается на права, значит папка уже 100% есть
+    pass 
 
-# Подключаем базу
 db = Database(DB_PATH)
+
+# --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДЛЯ КЛАНОВ ---
+# Это магия, чтобы не трогать твой database.py!
+with db.connection:
+    db.cursor.execute("CREATE TABLE IF NOT EXISTS clans (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, owner_id INTEGER)")
+    try:
+        db.cursor.execute("ALTER TABLE users ADD COLUMN clan_id INTEGER")
+    except:
+        pass # Если колонка уже есть, питон просто пойдет дальше
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Путь к картинкам остается в папке проекта (где лежит main.py)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMG_DIR = os.path.join(BASE_DIR, "img")
+
+# ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ ДЛЯ КРАБОВ
+CRABS_END_TIME = None
 
 # --- ДАННЫЕ ---
 FISH_DATA = {
@@ -43,6 +50,7 @@ FISH_DATA = {
     "fluffy": {"name": "Пушистая рыба", "weight": (1.0, 2.0), "loc": "Лаборатория", "bait": "Кошачий корм", "img": "fluffy_fish.png"},
     "amethyst": {"name": "Аметистовый карп", "weight": (2.0, 2.5), "loc": "Пещера", "bait": "Осколок трезубца", "img": "amethyst_fish.png"},
     "troll": {"name": "Рыба-тролль", "weight": (0.1, 8.0), "loc": "Деревня", "bait": "Кусок дерева", "img": "troll_fish.png"},
+    "shark": {"name": "Полная акула", "weight": (3.0, 5.0), "loc": "Океан", "bait": "Стандартная", "img": "shark.png"},
     "super_fluffy": {"name": "🐱СВЕРХ-ПУШИСТАЯ РЫБА", "weight": (3.0, 5.0), "loc": "Спец", "bait": None, "img": "super_fluffy.png"},
     "irinalegend": {"name": "🪼 МЕДУЗА ИРИНА", "weight": (20.0, 30.0), "loc": "Везде", "bait": None, "img": "irina.png"},
     "key_fish": {"name": "Рыба-ключ", "weight": (0.1, 0.1), "price": 1, "img": "key.png"},
@@ -60,6 +68,7 @@ ALMANAC_TEXT = """
 🐱8. Пушистая рыба (вес 1 - 2 кг)
 💎9. Аметистовый карп (вес 2 - 2.5 кг)
 🤡10. Рыба-тролль (вес 0.1 - 8 кг)
+🦈11. Полная акула (вес 3 - 5 кг)
 
 —-📌Локации:—-
 Шанс 70% поймать профильную рыбу:
@@ -93,10 +102,21 @@ def main_menu(balance=0):
     kb = InlineKeyboardBuilder()
     kb.row(types.InlineKeyboardButton(text="🎣 Закинуть", callback_data="throw"), types.InlineKeyboardButton(text="🎒 Инвент", callback_data="inv"))
     kb.row(types.InlineKeyboardButton(text="🗺️ Локации", callback_data="loc"), types.InlineKeyboardButton(text="🧪 Наживка", callback_data="bait_menu"))
-    kb.row(types.InlineKeyboardButton(text="📖 Альманах", callback_data="almanac"), types.InlineKeyboardButton(text="🕸 Сетка", callback_data="grid_call"))
+    # Заменили Сетку на Крабов!
+    kb.row(types.InlineKeyboardButton(text="📖 Альманах", callback_data="almanac"), types.InlineKeyboardButton(text="🦀 Крабы (100 💰)", callback_data="crabs_call"))
     kb.row(types.InlineKeyboardButton(text="🏆 Топ", callback_data="top"), types.InlineKeyboardButton(text=f"💰 {round(balance, 1)}", callback_data="stats"))
     kb.row(types.InlineKeyboardButton(text="📦 Ящики", callback_data="boxes_menu"))
     return kb.as_markup()
+
+# --- ФУНКЦИЯ ДЛЯ ПРОВЕРКИ КРАБОВ ---
+def check_crabs():
+    global CRABS_END_TIME
+    if CRABS_END_TIME and datetime.now() < CRABS_END_TIME:
+        wait = CRABS_END_TIME - datetime.now()
+        mins = wait.seconds // 60
+        secs = wait.seconds % 60
+        return f"Ваша ЛЕСКА🎣 словно 🦀ПРИКЛЕЕНА🦀🦀К🧶КАТУШКЕ🧶🧶\nосталось: {mins} мин. {secs} сек."
+    return None
 
 # --- ОСНОВНЫЕ КОМАНДЫ ---
 @dp.message(Command("start"))
@@ -109,6 +129,10 @@ async def start(msg: types.Message):
 
 @dp.message(F.text.lower().in_(["фиш", "fish", "закинуть"]))
 async def qol_throw(msg: types.Message):
+    crab_msg = check_crabs()
+    if crab_msg:
+        return await msg.answer(crab_msg)
+
     class FakeCall:
         def __init__(self, message):
             self.message = message
@@ -125,51 +149,65 @@ async def qol_inv(msg: types.Message):
     kb = InlineKeyboardBuilder().button(text="💰 Продать всё", callback_data="sell_all")
     await msg.answer(text if inv else "🎒 В инвентаре пусто...", reply_markup=kb.as_markup())
 
-# --- ФУНКЦИЯ СЕТКИ ---
-@dp.message(F.text.lower().in_(["сетка", "net", "сетку"]))
-async def use_grid(msg: types.Message):
+
+# --- СИСТЕМА КЛАНОВ ---
+@dp.message(F.text.lower().startswith("создать "))
+async def create_clan(msg: types.Message):
+    clan_name = msg.text[8:].strip()
     uid = msg.from_user.id
     user = db.get_user(uid)
-    if not user: return
+    if user[2] < 150:
+        return await msg.answer("❌ Нужно 150💰 для создания клана!")
     
-    now = datetime.now()
-    if len(user) > 6 and user[6]:
-        last_grid = datetime.fromisoformat(user[6])
-        if now < last_grid + timedelta(hours=5):
-            wait = (last_grid + timedelta(hours=5) - now)
-            hours, remainder = divmod(wait.seconds, 3600)
-            minutes = remainder // 60
-            return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{hours}ч. {minutes}мин.</b>")
-
-    total_money = 0
-    catch_lines = []
-
-    for _ in range(15):
-        possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy", "key_fish", "magic_cube"]]
-        
-        if random.random() < 0.001: 
-            f_key = "irinalegend"
-        else: 
-            f_key = random.choice(possible_keys)
-            
-        fish = FISH_DATA[f_key]
-        mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
-        
-        prefix = mod['p'] + " " if mod['p'] else ""
-        final_name = f"{prefix}{fish['name']}".strip()
-        
-        w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
-        p = round(w * 5, 1) if "price" not in fish else fish["price"]
-        
-        db.add_fish(uid, final_name, p)
-        catch_lines.append(f"• {final_name} ({p} 💰)")
-        total_money += p
-
     with db.connection:
-        db.cursor.execute("UPDATE users SET last_grid_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+        cur = db.cursor.execute("SELECT clan_id FROM users WHERE user_id = ?", (uid,)).fetchone()
+        if cur and cur[0]:
+            return await msg.answer("❌ Ты уже состоишь в клане!")
+        
+        exist = db.cursor.execute("SELECT id FROM clans WHERE name = ?", (clan_name,)).fetchone()
+        if exist: return await msg.answer("❌ Такое название уже занято!")
+        
+        db.cursor.execute("UPDATE users SET balance = balance - 150 WHERE user_id = ?", (uid,))
+        db.cursor.execute("INSERT INTO clans (name, owner_id) VALUES (?, ?)", (clan_name, uid))
+        clan_id = db.cursor.lastrowid
+        db.cursor.execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan_id, uid))
+        
+    await msg.answer(f"🛡️ Клан <b>{clan_name}</b> успешно создан за 150💰!")
 
-    response = (f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил из воды:\n\n" + "\n".join(catch_lines) + f"\n\n<b>ВСЕГО ДЕНЕГ💰: {round(total_money, 1)}</b>")
-    await msg.answer(response)
+@dp.message(F.text.lower() == "пригласить")
+async def invite_clan(msg: types.Message):
+    if not msg.reply_to_message: return await msg.answer("⚠️ Ответь на сообщение того, кого хочешь пригласить!")
+    uid = msg.from_user.id
+    target_id = msg.reply_to_message.from_user.id
+    
+    with db.connection:
+        clan = db.cursor.execute("SELECT id, name FROM clans WHERE owner_id = ?", (uid,)).fetchone()
+        if not clan: return await msg.answer("❌ Ты не глава клана!")
+        
+        t_user = db.cursor.execute("SELECT clan_id FROM users WHERE user_id = ?", (target_id,)).fetchone()
+        if t_user and t_user[0]: return await msg.answer("❌ Этот игрок уже состоит в клане!")
+        
+        db.cursor.execute("UPDATE users SET clan_id = ? WHERE user_id = ?", (clan[0], target_id))
+        
+    await msg.answer(f"🤝 <b>{msg.reply_to_message.from_user.first_name}</b> вступил в клан <b>{clan[1]}</b>!")
+
+@dp.message(F.text.lower() == "выгнать")
+async def kick_clan(msg: types.Message):
+    if not msg.reply_to_message: return await msg.answer("⚠️ Ответь на сообщение игрока!")
+    uid = msg.from_user.id
+    target_id = msg.reply_to_message.from_user.id
+    if uid == target_id: return await msg.answer("❌ Себя выгнать нельзя!")
+    
+    with db.connection:
+        clan = db.cursor.execute("SELECT id FROM clans WHERE owner_id = ?", (uid,)).fetchone()
+        if not clan: return await msg.answer("❌ Ты не глава клана!")
+        
+        t_user = db.cursor.execute("SELECT clan_id FROM users WHERE user_id = ?", (target_id,)).fetchone()
+        if not t_user or t_user[0] != clan[0]: return await msg.answer("❌ Этот игрок не в твоем клане!")
+        
+        db.cursor.execute("UPDATE users SET clan_id = NULL WHERE user_id = ?", (target_id,))
+        
+    await msg.answer(f"🥾 Игрок <b>{msg.reply_to_message.from_user.first_name}</b> изгнан из клана!")
 
 # --- СОЦИАЛЬНЫЕ КОМАНДЫ (ПЕРЕВОДЫ) ---
 @dp.message(F.text.lower().startswith("добавить"))
@@ -281,11 +319,16 @@ async def test_fish(msg: types.Message):
 # --- ОБРАБОТКА КНОПОК ---
 @dp.callback_query()
 async def handle_callbacks(call: types.CallbackQuery):
+    global CRABS_END_TIME
     uid = call.from_user.id
     user = db.get_user(uid)
     now = datetime.now()
 
     if call.data == "throw":
+        crab_msg = check_crabs()
+        if crab_msg:
+            return await call.answer(crab_msg, show_alert=True)
+
         if user[5]:
             last_time = datetime.fromisoformat(user[5])
             if now < last_time + timedelta(minutes=10):
@@ -346,9 +389,22 @@ async def handle_callbacks(call: types.CallbackQuery):
         
         await call.message.answer(f"🎣<b>{call.from_user.first_name}</b> вытащил <b>{final_name}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
 
+    elif call.data == "crabs_call":
+        if user[2] < 100:
+            return await call.answer("❌ У тебя нет 100 💰 для призыва крабов!", show_alert=True)
+        
+        with db.connection:
+            db.cursor.execute("UPDATE users SET balance = balance - 100 WHERE user_id = ?", (uid,))
+            
+        CRABS_END_TIME = datetime.now() + timedelta(hours=1)
+        meme_text = f"По воле <b>{call.from_user.first_name}</b> ЧАТ💬💬захватывают 🦀крабы🦀🦀... ваши🫵🫵 УДОЧКИ🎏🎏 сматываются🎣🎣🎣🫧🛀\nИз-за ВЛИ🦀ЯНИЯ 🦀🦀КРАБОВ🦀 🎣🎣рыбачить🎣🎣🎣 не будет 🌶️🌶️НИКТО🌶️на протяжении ⌚⌚ЧАСА⏰⏰⏰"
+        await call.message.answer(meme_text)
+        
+        new_u = db.get_user(uid)
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{round(new_u[2], 1)}</b> 💰", reply_markup=main_menu(new_u[2]))
+
     elif call.data == "boxes_menu":
         kb = InlineKeyboardBuilder()
-        # Добавил деревянный и переименовал всё в ящики
         kb.row(types.InlineKeyboardButton(text="📦 Обычный (1 🔑)", callback_data="buychest_common"))
         kb.row(types.InlineKeyboardButton(text="🔹📦 Бодрый (3 🔑)", callback_data="buychest_cheerful"))
         kb.row(types.InlineKeyboardButton(text="🪵📦 Деревянный (5 🔑)", callback_data="buychest_wooden"))
@@ -360,11 +416,10 @@ async def handle_callbacks(call: types.CallbackQuery):
     elif call.data.startswith("buychest_"):
         chest_type = call.data.split("_")[1]
         
-        # Словари с ценами и префиксами
         costs = {
             "common": 1, 
             "cheerful": 3, 
-            "wooden": 5,   # Твой новый ящик
+            "wooden": 5,   
             "strong": 7, 
             "gold": 15
         }
@@ -379,7 +434,6 @@ async def handle_callbacks(call: types.CallbackQuery):
         cost = costs[chest_type]
         inv = db.get_inventory(uid)
         
-        # Считаем ключи в инвентаре
         key_count = 0
         for item in inv:
             if "Рыба-ключ" in item[0]:
@@ -389,23 +443,19 @@ async def handle_callbacks(call: types.CallbackQuery):
         if key_count < cost:
             return await call.answer(f"❌ Нужно {cost} ключей! У тебя: {key_count}", show_alert=True)
 
-        # СПИСАНИЕ КЛЮЧЕЙ (Исправил count - 1 на count - cost)
         with db.connection:
             db.cursor.execute(
                 "UPDATE inventory SET count = count - ? WHERE user_id = ? AND fish_name = 'Рыба-ключ'", 
                 (cost, uid)
             )
-            # Удаляем строку, если ключи кончились
             db.cursor.execute("DELETE FROM inventory WHERE count <= 0")
 
-        # Выбираем рыбу (исключаем спец-предметы)
         f_key = random.choice([k for k in FISH_DATA.keys() if k not in ["key_fish", "magic_cube", "irinalegend", "super_fluffy"]])
         fish = FISH_DATA[f_key]
         
         prefix = target_mods[chest_type]
         final_name = f"{prefix} {fish['name']}".strip()
         
-        # Генерируем цену на основе веса
         price = round(random.uniform(fish["weight"][0], fish["weight"][1]) * 10, 1) 
         
         db.add_fish(uid, final_name, price)
@@ -414,9 +464,6 @@ async def handle_callbacks(call: types.CallbackQuery):
     elif call.data == "almanac":
         kb = InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data="back")
         await call.message.edit_text(ALMANAC_TEXT, reply_markup=kb.as_markup())
-
-    elif call.data == "grid_call":
-        await use_grid(call.message)
 
     elif call.data == "bait_menu":
         kb = InlineKeyboardBuilder()
@@ -502,7 +549,7 @@ async def handle_callbacks(call: types.CallbackQuery):
         await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{round(user[2], 1)}</b> 💰", reply_markup=main_menu(user[2]))
 
     elif call.data == "stats":
-        pass # Кнопка баланса просто для красоты, не делаем ничего
+        pass 
 
     await call.answer()
 
@@ -515,4 +562,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
-
