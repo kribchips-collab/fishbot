@@ -512,16 +512,25 @@ async def handle_callbacks(call: types.CallbackQuery):
         await call.message.edit_text(text, reply_markup=kb.as_markup())
 
     elif call.data == "top":
-        top_list = db.get_top_players()
-        if not top_list:
-            return await call.answer("🏆 Список лидеров пуст!", show_alert=True)
+        # Получаем данные из базы
+        top_players = db.get_top_players()
+        top_clans = db.get_top_clans()
 
-        text = "🏆 <b>ТОП РЫБОЛОВОВ:</b>\n\n"
-        for i, (name, balance, inv_val, coll_val) in enumerate(top_list, 1):
-            liquid = round(balance + inv_val, 1)
-            total = round(balance + inv_val + coll_val, 1)
-            username = name if name else "Аноним"
-            text += f"{i}. <b>{username}</b> — {liquid}💰, <i>{total}💰 с колл.</i>\n"
+        text = "🏆 <b>ТОП РЫБОЛОВОВ:</b>\n"
+        if not top_players:
+            text += "<i>Список пуст...</i>\n"
+        else:
+            for i, (name, balance, inv_val, coll_val) in enumerate(top_players, 1):
+                liquid = round(balance + inv_val, 1)
+                total = round(balance + inv_val + coll_val, 1)
+                text += f"{i}. <b>{name}</b> — {liquid}💰 (всего: {total})\n"
+
+        text += "\n🛡 <b>ТОП 10 КЛАНОВ:</b>\n"
+        if not top_clans:
+            text += "<i>Кланов пока нет...</i>"
+        else:
+            for i, (clan_name, wealth) in enumerate(top_clans, 1):
+                text += f"{i}. <b>{clan_name}</b> — {round(wealth, 1)} 💰\n"
 
         kb = InlineKeyboardBuilder().button(text="⬅️ Назад", callback_data="back")
         await call.message.edit_text(text, reply_markup=kb.as_markup())
@@ -562,3 +571,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
