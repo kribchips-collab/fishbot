@@ -149,6 +149,42 @@ async def qol_inv(msg: types.Message):
     kb = InlineKeyboardBuilder().button(text="💰 Продать всё", callback_data="sell_all")
     await msg.answer(text if inv else "🎒 В инвентаре пусто...", reply_markup=kb.as_markup())
 
+@dp.message(F.text.lower().in_(["сетка", "net", "сетку"]))
+async def use_grid(msg: types.Message):
+    uid = msg.from_user.id
+    user = db.get_user(uid) # Проверь, чтобы база возвращала данные
+    if not user: return
+    
+    now = datetime.now()
+    # Проверка КД (5 часов). Предполагаем, что время в базе в 7-м столбце (индекс 6)
+    if len(user) > 6 and user[6]:
+        last_grid = datetime.fromisoformat(user[6])
+        if now < last_grid + timedelta(hours=5):
+            wait = (last_grid + timedelta(hours=5) - now)
+            h, m = wait.seconds // 3600, (wait.seconds // 60) % 60
+            return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{h}ч. {m}мин.</b>")
+
+    total_money, catch_lines = 0, []
+    # Список ключей рыб без редких/квестовых
+    possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy", "key_fish", "magic_cube"]]
+
+    for _ in range(15):
+        f_key = random.choice(possible_keys)
+        fish = FISH_DATA[f_key]
+        mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
+        final_name = f"{mod['p'] + ' ' if mod['p'] else ''}{fish['name']}".strip()
+        # Считаем вес и цену (как в твоем тесте: вес * 5)
+        w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
+        p = round(w * 5, 1)
+        db.add_fish(uid, final_name, p)
+        catch_lines.append(f"• {final_name} ({p} 💰)")
+        total_money += p
+
+    # Записываем время использования в базу
+    with db.connection:
+        db.cursor.execute("UPDATE users SET last_grid_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+        
+    await msg.answer(f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил:\n\n" + "\n".join(catch_lines) + f"\n\n<b>ИТОГО: {round(total_money, 1)} 💰</b>")
 
 # --- СИСТЕМА КЛАНОВ ---
 @dp.message(F.text.lower().startswith("создать "))
@@ -571,4 +607,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
