@@ -149,20 +149,25 @@ async def qol_inv(msg: types.Message):
     kb = InlineKeyboardBuilder().button(text="💰 Продать всё", callback_data="sell_all")
     await msg.answer(text if inv else "🎒 В инвентаре пусто...", reply_markup=kb.as_markup())
 
-@dp.message(F.text.lower().in_(["сетка", "net", "сетку"]))
+@dp.message(F.text.lower().in_(["сетка", "net", "сетку", "секта"]))
 async def use_grid(msg: types.Message):
     uid = msg.from_user.id
     user = db.get_user(uid) # Проверь, чтобы база возвращала данные
     if not user: return
     
     now = datetime.now()
+    is_sect = msg.text.lower() == "секта"
+    
     # Проверка КД (5 часов). Предполагаем, что время в базе в 7-м столбце (индекс 6)
     if len(user) > 6 and user[6]:
         last_grid = datetime.fromisoformat(user[6])
         if now < last_grid + timedelta(hours=5):
             wait = (last_grid + timedelta(hours=5) - now)
             h, m = wait.seconds // 3600, (wait.seconds // 60) % 60
-            return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{h}ч. {m}мин.</b>")
+            if is_sect:
+                return await msg.answer(f"⌛ <b>Духи Бездны еще не восстановили силы.</b>\nПриходи через <b>{h}ч. {m}мин.</b>")
+            else:
+                return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{h}ч. {m}мин.</b>")
 
     total_money, catch_lines = 0, []
     # Список ключей рыб без редких/квестовых
@@ -184,7 +189,21 @@ async def use_grid(msg: types.Message):
     with db.connection:
         db.cursor.execute("UPDATE users SET last_grid_time = ? WHERE user_id = ?", (now.isoformat(), uid))
         
-    await msg.answer(f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил:\n\n" + "\n".join(catch_lines) + f"\n\n<b>ИТОГО: {round(total_money, 1)} 💰</b>")
+    # Разделение вывода: лорная секта или обычная сетка
+    if is_sect:
+        ritual = await msg.answer("💠 <b>Обряд Секты начинается...</b>\n\n🏮 Вы зажигаете глубоководные свечи и взываете к Великому Ктулху...")
+        await asyncio.sleep(3)
+        
+        await ritual.edit_text("🌀 <b>Мистические воды бурлят...</b>\n\n🌊 Сети наполняются эссенцией Бездны. Крабы в ужасе бегут с этого берега!")
+        await asyncio.sleep(3)
+
+        await ritual.edit_text(
+            f"🔱 <b>Обряд завершен!</b> Бездна даровала <b>{msg.from_user.first_name}</b> щедрый дар:\n\n" 
+            + "\n".join(catch_lines) + 
+            f"\n\n<b>✨ Социальный профит: {round(total_money, 1)} 💰</b>"
+        )
+    else:
+        await msg.answer(f"🕸️ <b>Сетка!</b> {msg.from_user.first_name} вытащил:\n\n" + "\n".join(catch_lines) + f"\n\n<b>ИТОГО: {round(total_money, 1)} 💰</b>")
 
 # --- СИСТЕМА КЛАНОВ ---
 @dp.message(F.text.lower().startswith("создать "))
@@ -607,5 +626,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
+
 
 
