@@ -20,14 +20,22 @@ except Exception:
 
 db = Database(DB_PATH)
 
-# --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДЛЯ КЛАНОВ ---
-# Это магия, чтобы не трогать твой database.py!
+# --- АВТО-ОБНОВЛЕНИЕ БАЗЫ ДЛЯ КЛАНОВ И ВИРУСА ---
+# Магия, чтобы не трогать твой database.py и ничего не потерять!
 with db.connection:
     db.cursor.execute("CREATE TABLE IF NOT EXISTS clans (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, owner_id INTEGER)")
     try:
         db.cursor.execute("ALTER TABLE users ADD COLUMN clan_id INTEGER")
     except:
-        pass # Если колонка уже есть, питон просто пойдет дальше
+        pass
+    try:
+        db.cursor.execute("ALTER TABLE users ADD COLUMN infection INTEGER DEFAULT 0")
+    except:
+        pass
+    try:
+        db.cursor.execute("ALTER TABLE users ADD COLUMN bath_mute TEXT")
+    except:
+        pass
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
@@ -102,10 +110,10 @@ def main_menu(balance=0):
     kb = InlineKeyboardBuilder()
     kb.row(types.InlineKeyboardButton(text="🎣 Закинуть", callback_data="throw"), types.InlineKeyboardButton(text="🎒 Инвент", callback_data="inv"))
     kb.row(types.InlineKeyboardButton(text="🗺️ Локации", callback_data="loc"), types.InlineKeyboardButton(text="🧪 Наживка", callback_data="bait_menu"))
-    # Заменили Сетку на Крабов!
-    kb.row(types.InlineKeyboardButton(text="📖 Альманах", callback_data="almanac"), types.InlineKeyboardButton(text="🦀 Крабы (100 💰)", callback_data="crabs_call"))
-    kb.row(types.InlineKeyboardButton(text="🏆 Топ", callback_data="top"), types.InlineKeyboardButton(text=f"💰 {round(balance, 1)}", callback_data="stats"))
-    kb.row(types.InlineKeyboardButton(text="📦 Ящики", callback_data="boxes_menu"))
+    kb.row(types.InlineKeyboardButton(text="📖 Альманах", callback_data="almanac"), types.InlineKeyboardButton(text="🦀 Крабы (100)", callback_data="crabs_call"))
+    # Добавили ванну в меню!
+    kb.row(types.InlineKeyboardButton(text="🛀 Ванна (175)", callback_data="crab_bath"), types.InlineKeyboardButton(text="🏆 Топ", callback_data="top"))
+    kb.row(types.InlineKeyboardButton(text="📦 Ящики", callback_data="boxes_menu"), types.InlineKeyboardButton(text=f"💰 {round(balance, 1)}", callback_data="stats"))
     return kb.as_markup()
 
 # --- ФУНКЦИЯ ДЛЯ ПРОВЕРКИ КРАБОВ ---
@@ -152,13 +160,12 @@ async def qol_inv(msg: types.Message):
 @dp.message(F.text.lower().in_(["сетка", "net", "сетку", "секта"]))
 async def use_grid(msg: types.Message):
     uid = msg.from_user.id
-    user = db.get_user(uid) # Проверь, чтобы база возвращала данные
+    user = db.get_user(uid)
     if not user: return
     
     now = datetime.now()
     is_sect = msg.text.lower() == "секта"
     
-    # Проверка КД (5 часов). Предполагаем, что время в базе в 7-м столбце (индекс 6)
     if len(user) > 6 and user[6]:
         last_grid = datetime.fromisoformat(user[6])
         if now < last_grid + timedelta(hours=5):
@@ -170,7 +177,6 @@ async def use_grid(msg: types.Message):
                 return await msg.answer(f"⏳ Сетка запуталась! Приходи через <b>{h}ч. {m}мин.</b>")
 
     total_money, catch_lines = 0, []
-    # Список ключей рыб без редких/квестовых
     possible_keys = [k for k in FISH_DATA.keys() if k not in ["irinalegend", "super_fluffy", "key_fish", "magic_cube"]]
 
     for _ in range(15):
@@ -178,25 +184,20 @@ async def use_grid(msg: types.Message):
         fish = FISH_DATA[f_key]
         mod = random.choices(FISH_MODS, weights=[m["w"] for m in FISH_MODS])[0]
         final_name = f"{mod['p'] + ' ' if mod['p'] else ''}{fish['name']}".strip()
-        # Считаем вес и цену (как в твоем тесте: вес * 5)
         w = round(random.uniform(fish["weight"][0], fish["weight"][1]) * mod['m'], 2)
         p = round(w * 5, 1)
         db.add_fish(uid, final_name, p)
         catch_lines.append(f"• {final_name} ({p} 💰)")
         total_money += p
 
-    # Записываем время использования в базу
     with db.connection:
         db.cursor.execute("UPDATE users SET last_grid_time = ? WHERE user_id = ?", (now.isoformat(), uid))
         
-    # Разделение вывода: лорная секта или обычная сетка
     if is_sect:
         ritual = await msg.answer("💠 <b>Обряд Секты начинается...</b>\n\n🏮 Вы зажигаете глубоководные свечи и взываете к Великому Ктулху...")
         await asyncio.sleep(3)
-        
         await ritual.edit_text("🌀 <b>Мистические воды бурлят...</b>\n\n🌊 Сети наполняются эссенцией Бездны. Крабы в ужасе бегут с этого берега!")
         await asyncio.sleep(3)
-
         await ritual.edit_text(
             f"🔱 <b>Обряд завершен!</b> Бездна даровала <b>{msg.from_user.first_name}</b> щедрый дар:\n\n" 
             + "\n".join(catch_lines) + 
@@ -380,16 +381,58 @@ async def handle_callbacks(call: types.CallbackQuery):
     now = datetime.now()
 
     if call.data == "throw":
+        # 1. Сначала проверяем общих крабов (глобальный мут)
         crab_msg = check_crabs()
         if crab_msg:
             return await call.answer(crab_msg, show_alert=True)
 
+        # 2. Проверяем состояние ВИРУСА и личную ВАННУ
+        with db.connection:
+            cur = db.cursor.execute("SELECT infection, bath_mute FROM users WHERE user_id = ?", (uid,)).fetchone()
+            inf = cur[0] if cur and cur[0] is not None else 0
+            bath_mute = cur[1] if cur else None
+
+        # Проверка личного мута после Ванны (30 мин)
+        if bath_mute:
+            mute_time = datetime.fromisoformat(bath_mute)
+            if now < mute_time:
+                return await call.answer("Расслабьтесь...", show_alert=True)
+
+        # 3. Обычный КД (10 минут на рыбалку)
         if user[5]:
             last_time = datetime.fromisoformat(user[5])
             if now < last_time + timedelta(minutes=10):
                 wait = (last_time + timedelta(minutes=10) - now).seconds // 60
                 return await call.answer(f"⏳ Жди {wait+1} мин.", show_alert=True)
 
+        # 4. ЛОГИКА ЗАРАЖЕНИЯ (ЛУДО-ВИРУС)
+        new_inf = inf
+        roll_inf = random.random()
+
+        if inf == 0 and roll_inf < 0.01:
+            new_inf = 1
+            msg_inf = "ВЫ🫵🫵🫵...ЧувсТвУетЕ... 🦀КРАБОВЫЙ🦀🦀🦀ЩЕКОТ ПОД РЁБРАМИ❓❓ВАШ  🧠М🧠О🐠З🐠Г🐟СтаноВитСЯ 🫧ПУЗЫРЧ🫧АТЫМ🫧... 🌶🛀 Крабовая ванна СТАНОВИТСЯ ПРИВЛЕКАТЕЛЬНЕЕ... ВЫ🫵🫵 ЕЩЕ ЧЕЛОВЕК?? 🤝🤝 Расслабьтесь..."
+        elif inf == 1 and roll_inf < 0.10:
+            new_inf = 2
+            msg_inf = "🧼🧼 ОГО... ВАШИ ПАЛЬЦЫ 🧤🧤 СЛИПАЮТСЯ В ПЛАВНИКИ... 🫧🛀 ТЕКСТУРА БОБРА 🪵 ДЕРЕВЯННОГО СТАНОВИТСЯ ПОНЯТНЕЕ... 🧬🐟 ВЛИЯНИЕ ПЕРЦА 🌶 ПОЧТИ УШЛО... ОСТАЛАСЬ ТОЛЬКО ВЛАГА... 🛀🫧 ВЫ ХОТИТЕ БУЛЬКАТЬ?? 🦀🦀 НЕМЕДЛЕННО ПрИМитЕ 🛁🛁КРАБОВУЮ🦀🦀ВАННУ🧼🧼🛁!!"
+        elif inf == 2 and roll_inf < 0.15:
+            new_inf = 3
+            msg_inf = "🐟🐟 БУЛЬ-БУЛЬ-БУЛЬ. 🫧🫧 ВЫ🫵🫵 БОЛЬШЕ НЕ рыбАЧитЕ... ВЫ🫵🫵 IZVERGAETE PUZЫRИ... 🧼🧼 ЧЕЛОВЕЧЕСКОЕ ЗЛО 👺 ИСКОРЕНЕНО... 🛀🧖 ВЫ СТАЛИ ЧИСТЫМ УЛОВОМ... 🎣🎣 ВАШЕ МЕСТО В СЕТКЕ!! 🕸🔱 БЕЗДНА СМОТРИТ ВАШИМИ ГЛАЗАМИ-БУСИНКАМИ!! 🦀🧼"
+
+        if new_inf != inf:
+            with db.connection:
+                db.cursor.execute("UPDATE users SET infection = ?, last_fish_time = ? WHERE user_id = ?", (new_inf, now.isoformat(), uid))
+            return await call.answer(msg_inf, show_alert=True)
+
+        # 5. ШАНС БЛОКИРОВКИ РЫБАЛКИ (пузыри вместо улова)
+        block_chances = {1: 0.10, 2: 0.30, 3: 0.75}
+        if inf in block_chances and random.random() < block_chances[inf]:
+            with db.connection:
+                # Обновляем КД, рыбалка сгорела
+                db.cursor.execute("UPDATE users SET last_fish_time = ? WHERE user_id = ?", (now.isoformat(), uid))
+            return await call.answer("🫧🫧 ВАша УДочКА🎣🎣🎣 ПОЛнА ИКРЫ🫧🫧🧼 И МЫЛЬНОЙ ПЕНЫ... 🫧🫧🧼🧼 ВЫ НЕ МОЖЕТЕ КРИЧАТЬ... 🐟🐟 ТОЛЬКО ПУЗЫРИ... 🧖🧖 НУЖНО СВЯТОЕ ОЧИЩЕНИЕ 🛀🛀🦀🦀🦀🦀", show_alert=True)
+
+        # --- 6. ОБЫЧНАЯ РЫБАЛКА (если пронесло) ---
         current_loc, current_bait = user[3], user[4]
         
         key_chance = 0.05
@@ -443,6 +486,22 @@ async def handle_callbacks(call: types.CallbackQuery):
             await call.message.answer_sticker(sticker=FSInputFile(img_path))
         
         await call.message.answer(f"🎣<b>{call.from_user.first_name}</b> вытащил <b>{final_name}</b> ({weight} кг)\n💰 Цена: {price}", reply_markup=main_menu(user[2]))
+
+    # --- НОВАЯ КНОПКА: КРАБОВАЯ ВАННА (ЛЕЧЕНИЕ) ---
+    elif call.data == "crab_bath":
+        if user[2] < 175:
+            return await call.answer("❌ Нужно 175 💰 на святую ванну!", show_alert=True)
+        
+        mute_until = (datetime.now() + timedelta(minutes=30)).isoformat()
+        
+        with db.connection:
+            db.cursor.execute("UPDATE users SET balance = balance - 175, infection = 0, bath_mute = ? WHERE user_id = ?", (mute_until, uid))
+        
+        meme_text = "ВЫ🫵🫵 расслабляетесь....ООО 🦀крабы🦀🦀 поступают...🫧🫧🫧🧼🧼\n🛀🛀\n🧖\nВлияние 🐟🐟🐟РЫБЫ уходит...\nРасслабьтесь, бобр деревянный 🤝🤝🤝"
+        await call.message.answer(meme_text)
+        
+        new_u = db.get_user(uid)
+        await call.message.edit_text(f"Мир МС огромен... Баланс: <b>{round(new_u[2], 1)}</b> 💰", reply_markup=main_menu(new_u[2]))
 
     elif call.data == "crabs_call":
         if user[2] < 100:
@@ -567,7 +626,6 @@ async def handle_callbacks(call: types.CallbackQuery):
         await call.message.edit_text(text, reply_markup=kb.as_markup())
 
     elif call.data == "top":
-        # Получаем данные из базы
         top_players = db.get_top_players()
         top_clans = db.get_top_clans()
 
@@ -626,6 +684,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Бот выключен")
-
-
-
