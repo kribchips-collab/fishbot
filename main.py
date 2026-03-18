@@ -266,6 +266,38 @@ async def kick_clan(msg: types.Message):
     await msg.answer(f"🥾 Игрок <b>{msg.reply_to_message.from_user.first_name}</b> изгнан из клана!")
 
 # --- СОЦИАЛЬНЫЕ КОМАНДЫ (ПЕРЕВОДЫ) ---
+# --- КАЗИНО / ЛУДОМАНИЯ ---
+@dp.message(F.text.lower().startswith("депнуть"))
+async def casino_deposit(msg: types.Message):
+    parts = msg.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        return await msg.answer("⚠️ Напиши: <b>депнуть [сумма]</b>")
+    
+    amount = int(parts[1])
+    if amount <= 0:
+        return await msg.answer("⚠️ Ставка должна быть больше нуля!")
+        
+    uid = msg.from_user.id
+    user = db.get_user(uid)
+    if not user: 
+        return
+        
+    balance = user[2]
+    if balance < amount:
+        return await msg.answer(f"❌ Недостаточно средств для депа! Твой баланс: {round(balance, 1)} 💰")
+
+    # Шанс 15% на победу
+    if random.random() < 0.15:
+        # Удвоение (прибавляем сумму ставки к балансу)
+        with db.connection:
+            db.cursor.execute("UPDATE users SET balance = ROUND(balance + ?, 1) WHERE user_id = ?", (amount, uid))
+        await msg.answer(f"🎰 <b>ДЖЕКПОТ!!!</b>\n\nКрабы вынесли тебе со дна золото! Твоя ставка {amount} 💰 <b>УДВОИЛАСЬ</b>!\nТеперь на балансе: <b>{round(balance + amount, 1)} 💰</b>")
+    else:
+        # Проигрыш (вычитаем сумму ставки из баланса)
+        with db.connection:
+            db.cursor.execute("UPDATE users SET balance = ROUND(balance - ?, 1) WHERE user_id = ?", (amount, uid))
+        await msg.answer(f"📉 <b>СЛИВ...</b>\n\nТы кинул {amount} 💰 в мутную воду, и их сожрала Слепая Рыба 🦯.\nОсталось: <b>{round(balance - amount, 1)} 💰</b>\n\n<i>Может, стоит принять 🛁 крабовую ванну, чтобы остудить пыл?</i>")
+        
 @dp.message(F.text.lower().startswith("добавить"))
 async def add_to_collection_cmd(msg: types.Message):
     fish_name = msg.text[9:].strip() 
